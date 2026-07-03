@@ -1,0 +1,10 @@
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-CORS==4.0.0
+SQLAlchemy==2.0.23
+PyJWT==2.8.0
+bcrypt==4.1.2
+pycryptodome==3.20.0
+requests==2.31.0
+playwright==1.40.0
+gevent==25.9.1

@@ -1,0 +1,69 @@
+{
+  "name": "courseplanningsystem",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:electron": "wait-on http://localhost:3000 && electron .",
+    "dev": "concurrently -k \"npm run dev:frontend\" \"npm run dev:electron\"",
+    "build:frontend": "npm run build --prefix frontend",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
+    "electron-packager": "^17.1.2",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "wait-on": "^9.0.3"
+  },
+  "dependencies": {
+    "tree-kill": "^1.2.2"
+  },
+  "build": {
+    "appId": "com.courseplanning.system",
+    "productName": "CoursePlanningSystem",
+    "files": [
+      "main.js",
+      "preload.js",
+      "frontend/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/dist/app",
+        "to": "backend/dist/app"
+      },
+      {
+        "from": "backend/backend.ico",
+        "to": "backend/backend.ico"
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "frontend/public/favicon.ico",
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "选课规划系统",
+      "deleteAppDataOnUninstall": true,
+      "include": "installer.nsh"
+    },
+    "compression": "maximum"
+  }
+}
