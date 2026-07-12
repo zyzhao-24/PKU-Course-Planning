@@ -18,7 +18,7 @@ function AdminLayout() {
     { path: '/admin/dashboard', label: '概览' },
     { path: '/admin/courses', label: '课程管理' },
     { path: '/admin/programs', label: '培养方案' },
-    { path: '/admin/students', label: '学生管理' },
+    { path: '/admin/students', label: '设置' },
     { path: '/admin/semester-config', label: '学期配置' },
   ];
 

@@ -48,6 +48,7 @@ from auth_utils import (
     generate_jwt_token,
     create_or_update_student,
     create_admin_user,
+    get_or_create_local_user,
     login_required,
     student_required,
     admin_required,
@@ -66,6 +67,7 @@ from auth_utils import (
     password_login as student_password_login,
     poll_qr_login,
     finalize_login,
+    bind_portal_session,
     check_portal_login_status,
     decrypt_session_password,
     get_session_public_key,
@@ -116,6 +118,36 @@ init_db(app)
 # 注册培养方案新系统的 blueprint
 app.register_blueprint(program_bp)
 
+
+def serialize_user(user):
+    return {
+        'id': user.id,
+        'username': user.username,
+        'name': user.name,
+        'role': user.role,
+        'major_program_id': user.major_program_id,
+        'minor_program_id': user.minor_program_id
+    }
+
+
+def portal_required_response(message='请先连接北大账号'):
+    return jsonify({
+        'success': False,
+        'portal_required': True,
+        'message': message
+    }), 409
+
+
+@app.route('/api/auth/local-session', methods=['POST'])
+def create_local_session():
+    user = get_or_create_local_user()
+    token = generate_jwt_token(user)
+    return jsonify({
+        'success': True,
+        'token': token,
+        'user': serialize_user(user)
+    })
+
 # ==================== 安全认证路由 ====================
 
 @app.route('/api/auth/public-key', methods=['POST'])
@@ -145,6 +177,11 @@ def get_public_key():
 @app.route('/api/auth/login', methods=['POST'])
 @rate_limit(max_attempts=10, window_seconds=60)
 def login():
+    return jsonify({
+        'success': False,
+        'message': 'Local sessions are automatic. Use /api/auth/local-session.'
+    }), 410
+
     """
     统一登录接口（使用RSA加密传输）
     请求: {
@@ -262,6 +299,7 @@ def get_current_user_info(current_user):
 
 # ==================== 学生登录路由（新） ====================
 
+@app.route('/api/portal/init', methods=['POST'])
 @app.route('/api/auth/student/init', methods=['POST'])
 def student_login_init():
     """
@@ -294,6 +332,7 @@ def student_login_init():
     return jsonify(response)
 
 
+@app.route('/api/portal/public-key', methods=['GET'])
 @app.route('/api/auth/student/public-key', methods=['GET'])
 def student_get_session_public_key():
     """
@@ -317,6 +356,7 @@ def student_get_session_public_key():
     })
 
 
+@app.route('/api/portal/switch-method', methods=['POST'])
 @app.route('/api/auth/student/switch-method', methods=['POST'])
 def student_switch_login_method():
     """
@@ -355,6 +395,7 @@ def student_switch_login_method():
     })
 
 
+@app.route('/api/portal/check-auth', methods=['POST'])
 @app.route('/api/auth/student/check-auth', methods=['POST'])
 @rate_limit(max_attempts=10, window_seconds=60)
 def student_check_mobile_auth():
@@ -387,6 +428,7 @@ def student_check_mobile_auth():
         return jsonify({'success': False, 'message': f'服务器错误: {str(e)}'}), 500
 
 
+@app.route('/api/portal/captcha', methods=['GET'])
 @app.route('/api/auth/student/captcha', methods=['GET'])
 def student_get_captcha():
     """
@@ -409,6 +451,7 @@ def student_get_captcha():
     })
 
 
+@app.route('/api/portal/sms', methods=['POST'])
 @app.route('/api/auth/student/sms', methods=['POST'])
 @rate_limit(max_attempts=3, window_seconds=120)
 def student_send_sms():
@@ -433,6 +476,7 @@ def student_send_sms():
     })
 
 
+@app.route('/api/portal/qr', methods=['GET'])
 @app.route('/api/auth/student/qr', methods=['GET'])
 def student_get_qr():
     """
@@ -456,6 +500,7 @@ def student_get_qr():
     })
 
 
+@app.route('/api/portal/login-password', methods=['POST'])
 @app.route('/api/auth/student/login-password', methods=['POST'])
 @rate_limit(max_attempts=5, window_seconds=60)
 def student_login_password():
@@ -509,6 +554,17 @@ def student_login_password():
         return jsonify(response), 401
     
     # 登录成功，完成登录流程
+    current_user = get_current_user()
+    if current_user:
+        if not bind_portal_session(session_id, current_user):
+            return jsonify({'success': False, 'message': 'Portal connection failed'}), 500
+        return jsonify({
+            'success': True,
+            'portal_connected': True,
+            'portal_user': user_info,
+            'user': serialize_user(current_user)
+        })
+
     user, _ = finalize_login(session_id, user_info)
     
     if not user:
@@ -531,6 +587,7 @@ def student_login_password():
     })
 
 
+@app.route('/api/portal/qr-poll', methods=['POST'])
 @app.route('/api/auth/student/qr-poll', methods=['POST'])
 def student_login_qr_poll():
     """
@@ -557,6 +614,17 @@ def student_login_qr_poll():
     if user_info:
         # 登录成功，完成登录流程
         # QR登录成功后，user_info 中包含 username
+        current_user = get_current_user()
+        if current_user:
+            if not bind_portal_session(session_id, current_user):
+                return jsonify({'success': False, 'message': 'Portal connection failed'}), 500
+            return jsonify({
+                'success': True,
+                'portal_connected': True,
+                'portal_user': user_info,
+                'user': serialize_user(current_user)
+            })
+
         user, _ = finalize_login(session_id, user_info)
         
         if not user:
@@ -603,6 +671,12 @@ def check_auth_status():
         }), 401
     
     # 学生需要检查portal会话
+    return jsonify({
+        'success': True,
+        'authenticated': True,
+        'user': serialize_user(user)
+    })
+
     if user.role == 'student':
         is_valid, message = check_portal_login_status(user.id)
         
@@ -1478,9 +1552,17 @@ def student_sync_schedule(current_user):
         }), 400
     
     # 获取Portal课程表
+    is_valid, portal_message = check_portal_login_status(current_user.id)
+    if not is_valid:
+        clear_portal_session(current_user.id)
+        return portal_required_response(portal_message)
+
     success, result = get_student_schedule(current_user.id, year, semester)
     
     if not success:
+        if 'Portal' in str(result):
+            clear_portal_session(current_user.id)
+            return portal_required_response(str(result))
         return jsonify({
             'success': False,
             'message': f'获取课程表失败: {result}'
@@ -1588,9 +1670,17 @@ def student_sync_schedule(current_user):
 def student_sync_transcript(current_user):
     """同步成绩单（只同步到数据库，不自动选课）"""
     # 使用新的 get_student_scores 函数获取成绩单
+    is_valid, portal_message = check_portal_login_status(current_user.id)
+    if not is_valid:
+        clear_portal_session(current_user.id)
+        return portal_required_response(portal_message)
+
     success, result = get_student_scores(current_user.id)
     
     if not success:
+        if 'Portal' in str(result):
+            clear_portal_session(current_user.id)
+            return portal_required_response(str(result))
         return jsonify({
             'success': False, 
             'message': f'获取成绩单失败: {result}'
@@ -1880,6 +1970,13 @@ def student_transcript_auto_select(current_user):
 
 @app.route('/api/admin/check-setup', methods=['GET'])
 def admin_check_setup():
+    user = get_or_create_local_user()
+    return jsonify({
+        'success': True,
+        'adminExists': True,
+        'username': user.username
+    })
+
     """检查是否需要初始化管理员账号"""
     existing_admin = User.query.filter_by(role='admin').first()
     if existing_admin:
@@ -1895,6 +1992,11 @@ def admin_check_setup():
 
 @app.route('/api/admin/setup', methods=['POST'])
 def admin_setup():
+    return jsonify({
+        'success': False,
+        'message': 'Admin setup has been removed. The local user is created automatically.'
+    }), 410
+
     """初始化管理员账号（仅首次使用）"""
     # 检查是否已有管理员
     existing_admin = User.query.filter_by(role='admin').first()
@@ -2131,7 +2233,7 @@ def admin_clear_all_courses(current_user):
 @admin_required
 def admin_get_students(current_user):
     """获取所有学生"""
-    students = User.query.filter_by(role='student').order_by(User.created_at.desc()).all()
+    students = User.query.order_by(User.created_at.desc()).all()
     
     # 获取培养方案名称映射（新系统：主修+辅双）
     program_ids = []

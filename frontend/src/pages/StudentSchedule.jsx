@@ -4,6 +4,7 @@ import { useSemester } from '../contexts/SemesterContext';
 import CourseTable from '../components/CourseTable';
 import { formatClassTimes, DEPARTMENT_CODE_MAP, WEEK_DAYS, formatExamInfo, getWeekDate, parseWeeksFromRange } from '../utils';
 import Modal from '../components/Modal';
+import PortalConnectModal from '../components/PortalConnectModal';
 
 function StudentSchedule() {
   const { selectedSemester, getFirstWeekMonday } = useSemester();
@@ -14,6 +15,7 @@ function StudentSchedule() {
   const [conflicts, setConflicts] = useState(new Set());
   const [selectedIds, setSelectedIds] = useState({});
   const [programNodes, setProgramNodes] = useState([]);
+  const [portalConnectOpen, setPortalConnectOpen] = useState(false);
   const [autoSelectedUuids, setAutoSelectedUuids] = useState(new Set()); // 自动选课的课程
 
   const [modal, setModal] = useState({
@@ -40,7 +42,6 @@ function StudentSchedule() {
   useEffect(() => {
     if (selectedSemester) {
       fetchData();
-      syncSchedule(); // 自动同步课表地点
     }
   }, [selectedSemester]);
 
@@ -286,6 +287,10 @@ function StudentSchedule() {
       }
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message;
+      if (err.response?.data?.portal_required) {
+        setPortalConnectOpen(true);
+        return;
+      }
       console.error('同步课表失败:', errorMsg);
     } finally {
       setSyncing(false);
@@ -311,6 +316,14 @@ function StudentSchedule() {
       >
         {modal.content}
       </Modal>
+      <PortalConnectModal
+        isOpen={portalConnectOpen}
+        onCancel={() => setPortalConnectOpen(false)}
+        onConnected={async () => {
+          setPortalConnectOpen(false);
+          await syncSchedule();
+        }}
+      />
 
       <div className="card" id="schedule-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
@@ -323,6 +336,9 @@ function StudentSchedule() {
               课程数: <span style={{ color: '#2c3e50', fontSize: '1.2em' }}>{courseDetails.length}</span>
             </span>
             <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn btn-secondary" onClick={handleSyncSchedule} disabled={syncing}>
+                {syncing ? '同步中...' : '同步课表'}
+              </button>
               <button className="btn btn-primary" onClick={handleExportPDF}>导出PDF</button>
               <button className="btn btn-danger" onClick={handleClearAll}>清空所有课程</button>
             </div>
@@ -469,4 +485,3 @@ function StudentSchedule() {
 }
 
 export default StudentSchedule;
-

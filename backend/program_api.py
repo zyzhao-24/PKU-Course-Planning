@@ -4,15 +4,26 @@
 提供管理端和学生端的 API 接口
 """
 
+import os
+import uuid
+from datetime import datetime
+from pathlib import Path
+
 from flask import Blueprint, jsonify, request
+from werkzeug.utils import secure_filename
 from models import (
     db, Program, MainCategory, Node, CourseList, CourseListAssignment, User,
-    Transcript, ExchangeTranscript, DissertationTranscript
+    Transcript, ExchangeTranscript, DissertationTranscript,
+    ProgramCourseOption, ProgramMutualExclusionGroup, ProgramRequirementRule
 )
 from program_calculator import ProgramProgressCalculator
 from auth_utils import login_required, admin_required, student_required, get_current_user
+from program_xls_parser.db_importer import import_parsed_program
+from program_xls_parser.parser import parse_xls
 
 program_bp = Blueprint('program', __name__, url_prefix='/api')
+
+ALLOWED_PROGRAM_IMPORT_EXTENSIONS = {'.xls'}
 
 
 # ==================== 管理端 API ====================
@@ -29,9 +40,140 @@ def get_programs(current_user):
             'name': p.name,
             'dept': p.dept,
             'channel': p.channel,
-            'year': p.year
+            'year': p.year,
+            'source_filename': (p.source_info or {}).get('original_filename') or (p.source_info or {}).get('filename')
         } for p in programs]
     })
+
+
+@program_bp.route('/admin/programs/import', methods=['POST'])
+@admin_required
+def import_program(current_user):
+    """上传并导入培养方案 XLS 文件"""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': 'No file provided'}), 400
+
+    uploaded_file = request.files['file']
+    if uploaded_file.filename == '':
+        return jsonify({'success': False, 'message': 'No selected file'}), 400
+
+    original_filename = uploaded_file.filename
+    suffix = Path(original_filename).suffix.lower()
+    if suffix not in ALLOWED_PROGRAM_IMPORT_EXTENSIONS:
+        return jsonify({'success': False, 'message': '仅支持 .xls 格式的培养方案文件'}), 400
+
+    saved_path = None
+    try:
+        upload_dir = get_program_upload_dir()
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_stem = secure_filename(Path(original_filename).stem) or 'program'
+        safe_name = f'{safe_stem}{suffix}'
+        saved_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+        saved_path = upload_dir / saved_name
+        uploaded_file.save(saved_path)
+
+        parsed = parse_xls(str(saved_path))
+        program = import_parsed_program(
+            parsed,
+            name=_optional_form_value('name'),
+            dept=_optional_form_value('dept'),
+            channel=_optional_int_form_value('channel', 0),
+            year=_optional_int_form_value('year'),
+            commit=False,
+        )
+
+        source_info = dict(program.source_info or {})
+        source_info.update({
+            'original_filename': original_filename,
+            'stored_filename': saved_name,
+            'stored_path': str(saved_path),
+            'stored_relative_path': str(saved_path.relative_to(upload_dir)),
+            'stored_size': saved_path.stat().st_size,
+            'uploaded_at': datetime.utcnow().isoformat() + 'Z',
+        })
+        program.source_info = source_info
+
+        db.session.commit()
+        stats = collect_program_import_stats(program.id)
+        return jsonify({
+            'success': True,
+            'message': f'成功导入培养方案：{program.name}',
+            'program': {
+                'id': program.id,
+                'name': program.name,
+                'dept': program.dept,
+                'channel': program.channel,
+                'year': program.year,
+                'source_filename': source_info.get('original_filename'),
+            },
+            'stats': stats,
+        })
+    except Exception as e:
+        db.session.rollback()
+        if saved_path and saved_path.exists():
+            try:
+                saved_path.unlink()
+            except OSError:
+                pass
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def get_program_upload_dir() -> Path:
+    configured = os.environ.get('PROGRAM_UPLOAD_DIR')
+    if configured:
+        return Path(configured)
+
+    appdata = os.environ.get('APPDATA')
+    if appdata:
+        return Path(appdata) / 'courseplanningsystem' / 'program_uploads'
+
+    return Path(os.path.dirname(os.path.abspath(__file__))).parent / 'program_uploads'
+
+
+def _optional_form_value(key):
+    value = request.form.get(key)
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _optional_int_form_value(key, default=None):
+    value = _optional_form_value(key)
+    if value is None:
+        return default
+    return int(value)
+
+
+def collect_program_import_stats(program_id):
+    category_ids = [
+        row.id
+        for row in MainCategory.query.with_entities(MainCategory.id)
+        .filter_by(program_id=program_id)
+        .all()
+    ]
+    node_ids = []
+    if category_ids:
+        node_ids = [
+            row.id
+            for row in Node.query.with_entities(Node.id)
+            .filter(Node.main_category_id.in_(category_ids))
+            .all()
+        ]
+
+    group_count = 0
+    if node_ids:
+        group_count = CourseList.query.filter(CourseList.node_id.in_(node_ids)).count()
+
+    return {
+        'categories': len(category_ids),
+        'modules': len(node_ids),
+        'groups': group_count,
+        'options': ProgramCourseOption.query.filter_by(program_id=program_id).count(),
+        'rules': ProgramRequirementRule.query.filter_by(program_id=program_id).count(),
+        'mutual_exclusions': ProgramMutualExclusionGroup.query.filter_by(program_id=program_id).count(),
+    }
 
 
 @program_bp.route('/admin/programs', methods=['POST'])
@@ -397,6 +539,74 @@ def assign_programs(user_id, current_user):
 
 
 # ==================== 学生端 API ====================
+
+@program_bp.route('/student/program-options', methods=['GET'])
+@login_required
+def get_student_program_options(current_user):
+    """获取当前用户可选择的培养方案"""
+    programs = Program.query.order_by(Program.year.desc(), Program.name).all()
+    return jsonify({
+        'success': True,
+        'programs': [{
+            'id': p.id,
+            'name': p.name,
+            'dept': p.dept,
+            'channel': p.channel,
+            'year': p.year,
+        } for p in programs]
+    })
+
+
+@program_bp.route('/student/program-settings', methods=['PUT'])
+@login_required
+def update_student_program_settings(current_user):
+    """更新当前用户的培养方案设置"""
+    data = request.json or {}
+
+    try:
+        major_program_id = _optional_program_id(data.get('major_program_id'), '主修方案')
+        minor_program_id = _optional_program_id(data.get('minor_program_id'), '辅双方案')
+
+        if major_program_id:
+            major_program = Program.query.get(major_program_id)
+            if not major_program or major_program.channel != 0:
+                return jsonify({'success': False, 'message': '主修方案无效'}), 400
+
+        if minor_program_id:
+            minor_program = Program.query.get(minor_program_id)
+            if not minor_program or minor_program.channel != 1:
+                return jsonify({'success': False, 'message': '辅双方案无效'}), 400
+
+        current_user.major_program_id = major_program_id
+        current_user.minor_program_id = minor_program_id
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': current_user.id,
+                'username': current_user.username,
+                'name': current_user.name,
+                'role': current_user.role,
+                'major_program_id': current_user.major_program_id,
+                'minor_program_id': current_user.minor_program_id,
+            }
+        })
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _optional_program_id(value, label):
+    if value in (None, ''):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'{label}无效')
+
 
 @program_bp.route('/student/progress', methods=['GET'])
 @student_required

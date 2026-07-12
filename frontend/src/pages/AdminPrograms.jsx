@@ -1,12 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../utils/axios';
 import Modal from '../components/Modal';
+import excelIcon from '../assets/xls.png';
 
 function AdminPrograms() {
   const navigate = useNavigate();
   const [programs, setPrograms] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [importStatus, setImportStatus] = useState('');
+  const [showImportWarning, setShowImportWarning] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [importChannel, setImportChannel] = useState(null);
+  const fileInputRef = useRef();
+  const importWarningTimerRef = useRef(null);
   const [formData, setFormData] = useState({ 
     name: '', 
     year: new Date().getFullYear(), 
@@ -34,6 +41,12 @@ function AdminPrograms() {
 
   useEffect(() => {
     fetchPrograms();
+
+    return () => {
+      if (importWarningTimerRef.current) {
+        clearTimeout(importWarningTimerRef.current);
+      }
+    };
   }, []);
 
   const fetchPrograms = async () => {
@@ -80,6 +93,116 @@ function AdminPrograms() {
 
   const handleEdit = (id) => {
     navigate(`/admin/programs/${id}`);
+  };
+
+  const showImportTypeWarning = () => {
+    setShowImportWarning(true);
+
+    if (importWarningTimerRef.current) {
+      clearTimeout(importWarningTimerRef.current);
+    }
+
+    importWarningTimerRef.current = setTimeout(() => {
+      setShowImportWarning(false);
+    }, 3000);
+  };
+
+  const handleImportAreaClick = () => {
+    if (importChannel === null) {
+      showImportTypeWarning();
+      return;
+    }
+
+    fileInputRef.current?.click();
+  };
+
+  const handleImportChannelClick = (channel) => {
+    setImportChannel(current => current === channel ? null : channel);
+
+    if (importWarningTimerRef.current) {
+      clearTimeout(importWarningTimerRef.current);
+    }
+    setShowImportWarning(false);
+  };
+
+  const handleFileUpload = async (files) => {
+    if (!files || files.length === 0) return;
+
+    if (importChannel === null) {
+      showImportTypeWarning();
+      if (fileInputRef.current) {
+        fileInputRef.current.value = null;
+      }
+      return;
+    }
+
+    const fileList = Array.from(files);
+    setImportStatus(`正在导入 ${fileList.length} 个文件...`);
+
+    let successCount = 0;
+    const errorMessages = [];
+
+    for (const file of fileList) {
+      const body = new FormData();
+      body.append('file', file);
+      body.append('channel', importChannel);
+
+      try {
+        const res = await axios.post('/api/admin/programs/import', body, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        successCount++;
+
+        const program = res.data.program;
+        const stats = res.data.stats;
+        const detail = stats
+          ? `${program.name}（${stats.categories} 类，${stats.modules} 模块，${stats.groups} 课程组，${stats.options} 门课程）`
+          : program.name;
+        setImportStatus(`正在导入 ${fileList.length} 个文件...\n已完成：${detail}`);
+      } catch (err) {
+        errorMessages.push(`${file.name}: ${err.response?.data?.message || err.message}`);
+      }
+    }
+
+    if (errorMessages.length > 0) {
+      setImportStatus(`导入完成: ${successCount}/${fileList.length} 成功\n错误:\n${errorMessages.join('\n')}`);
+    } else {
+      setImportStatus(`成功导入 ${successCount} 个文件`);
+    }
+
+    fetchPrograms();
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = null;
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      if (importChannel === null) {
+        showImportTypeWarning();
+        return;
+      }
+
+      handleFileUpload(files);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
   };
 
   const getChannelLabel = (channel) => {
@@ -158,6 +281,104 @@ function AdminPrograms() {
       )}
 
       <div className="card">
+        <h3>数据导入</h3>
+        <div
+          aria-live="polite"
+          style={{
+            maxHeight: showImportWarning ? '44px' : 0,
+            opacity: showImportWarning ? 1 : 0,
+            overflow: 'hidden',
+            transform: showImportWarning ? 'translateY(0)' : 'translateY(-8px)',
+            transition: 'max-height 0.25s ease, opacity 0.2s ease, transform 0.25s ease',
+            pointerEvents: 'none'
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#fff7ed',
+              border: '1px solid #fdba74',
+              color: '#9a3412',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: 500,
+              padding: '9px 12px',
+              marginBottom: '12px',
+              textAlign: 'center'
+            }}
+          >
+            必须选择培养方案类型后才能上传文件
+          </div>
+        </div>
+        <div
+          className="import-area"
+          style={{
+            border: isDragging ? '2px dashed #0067c0' : '2px dashed #e0e0e0',
+            borderRadius: '8px',
+            padding: '30px 20px',
+            textAlign: 'center',
+            backgroundColor: isDragging ? '#f0f7ff' : '#fafafa',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            marginBottom: '15px'
+          }}
+          onClick={handleImportAreaClick}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onMouseOver={(e) => { if (!isDragging) { e.currentTarget.style.borderColor = '#0067c0'; e.currentTarget.style.backgroundColor = '#f0f7ff'; }}}
+          onMouseOut={(e) => { if (!isDragging) { e.currentTarget.style.borderColor = '#e0e0e0'; e.currentTarget.style.backgroundColor = '#fafafa'; }}}
+        >
+          <div
+            style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span style={{ fontSize: '13px', color: '#555' }}>导入类型</span>
+            <div role="group" aria-label="导入类型" style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              {[
+                { value: 0, label: '主修' },
+                { value: 1, label: '辅修/双学位（双专业）' }
+              ].map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`btn ${importChannel === option.value ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                  aria-pressed={importChannel === option.value}
+                  onClick={() => handleImportChannelClick(option.value)}
+                  style={{ minWidth: option.value === 0 ? '72px' : '180px' }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".xls"
+            multiple
+            onChange={(e) => handleFileUpload(e.target.files)}
+            style={{ display: 'none' }}
+          />
+          <div style={{ marginBottom: '10px' }}>
+            <img
+              src={excelIcon}
+              alt="Excel"
+              style={{ width: '56px', height: '56px' }}
+            />
+          </div>
+          <div style={{ fontWeight: '600', color: '#333', marginBottom: '5px' }}>
+            {isDragging ? '释放以上传文件' : '点击或拖拽上传培养方案文件'}
+          </div>
+          <div style={{ fontSize: '13px', color: '#888' }}>支持 .xls 格式，可多选文件</div>
+        </div>
+        {importStatus && (
+          <p style={{ marginTop: '10px', color: '#666', fontSize: '14px', whiteSpace: 'pre-line' }}>
+            {importStatus}
+          </p>
+        )}
+      </div>
+
+      <div className="card">
         <h3>方案列表</h3>
         {loading ? (
           <div>加载中...</div>
@@ -172,6 +393,7 @@ function AdminPrograms() {
                   <th>年级</th>
                   <th>院系</th>
                   <th>类型</th>
+                  <th>来源文件</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -192,6 +414,7 @@ function AdminPrograms() {
                         {getChannelLabel(p.channel)}
                       </span>
                     </td>
+                    <td>{p.source_filename || '-'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '5px' }}>
                         <button 

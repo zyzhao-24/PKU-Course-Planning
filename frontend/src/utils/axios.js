@@ -42,10 +42,6 @@ axios.interceptors.response.use(
       
       // 如果不是在登录页面，重定向到登录页
       // 注意：使用 HashRouter，需要检查 hash
-      const isLoginPage = window.location.hash.includes('/login');
-      if (!isLoginPage) {
-        window.location.href = '/#/login';
-      }
     }
     return Promise.reject(error);
   }

@@ -1,24 +1,22 @@
 import React from 'react';
-import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSemester } from '../contexts/SemesterContext';
 
 function StudentLayout() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { semesters, selectedSemester, setSelectedSemester, loading } = useSemester();
-  const navigate = useNavigate();
   const location = useLocation();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
 
   const navItems = [
     { path: '/student/courses', label: '选课' },
     { path: '/student/schedule', label: '我的课表' },
     { path: '/student/transcript', label: '成绩单' },
-    { path: '/student/progress', label: '培养方案' }
+    { path: '/student/progress', label: '培养方案' },
+    { path: '/admin/courses', label: '课程管理' },
+    { path: '/admin/programs', label: '方案管理' },
+    { path: '/admin/semester-config', label: '学期配置' },
+    { path: '/admin/students', label: '设置' },
   ];
 
   return (
@@ -35,11 +33,10 @@ function StudentLayout() {
               {item.label}
             </Link>
           ))}
-          
-          {/* 学期选择器 - 美化的下拉框 */}
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
             gap: '8px',
             marginLeft: '20px',
             marginRight: '15px',
@@ -49,16 +46,16 @@ function StudentLayout() {
             border: '1px solid #e0e0e0',
             boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
           }}>
-            <span style={{ 
-              fontSize: '13px', 
+            <span style={{
+              fontSize: '13px',
               color: '#666',
               fontWeight: '500',
               whiteSpace: 'nowrap'
             }}>
               学期:
             </span>
-            <select 
-              value={selectedSemester} 
+            <select
+              value={selectedSemester}
               onChange={(e) => setSelectedSemester(e.target.value)}
               disabled={loading}
               style={{
@@ -82,13 +79,6 @@ function StudentLayout() {
           <span style={{ color: '#666', fontSize: '14px' }}>
             {user?.name || user?.username}
           </span>
-          <button 
-            className="btn btn-danger btn-sm" 
-            onClick={handleLogout}
-            style={{ marginLeft: '10px' }}
-          >
-            退出
-          </button>
         </div>
       </nav>
 

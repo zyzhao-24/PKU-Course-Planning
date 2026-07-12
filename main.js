@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, nativeImage, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
@@ -28,7 +28,9 @@ const PY_MODULE = 'app.py';
 const isDev = !app.isPackaged;
 const BACKEND_PORT = isDev ? 5001 : 5000;
 const BACKEND_BASE_URL = `http://127.0.0.1:${BACKEND_PORT}`;
-const settingsFile = path.join(app.getPath('userData'), 'app-settings.json');
+const settingsFile = isDev
+  ? path.join(__dirname, 'app-settings.json')
+  : path.join(app.getPath('userData'), 'app-settings.json');
 const CLOSE_ACTIONS = new Set(['ask', 'quit', 'minimizeToTray']);
 const DEFAULT_APP_SETTINGS = {
   schemaVersion: 1,
@@ -81,6 +83,13 @@ const setCloseActionPreference = (closeAction) => {
     },
   });
 };
+
+ipcMain.handle('app-settings:get', () => appSettings);
+
+ipcMain.handle('app-settings:set-close-action', (_event, closeAction) => {
+  setCloseActionPreference(closeAction);
+  return appSettings;
+});
 
 const getAppIconPath = () => {
   const publicIconPath = path.join(__dirname, 'frontend/public/favicon.ico');
@@ -397,7 +406,6 @@ function showAdminSetupWindow() {
     req.end();
   }
 
-  const { ipcMain } = require('electron');
   let submitted = false;
 
   ipcMain.once('admin-credentials', (event, creds) => {
@@ -429,27 +437,6 @@ function startPythonAndCreateWindow() {
   startPythonSubprocess();
 
   const template = [
-    {
-      label: '文件',
-      submenu: [
-        { label: '关闭窗口时重新询问', click: () => setCloseActionPreference('ask') },
-        { type: 'separator' },
-        { label: '退出', click: quitApplication }
-      ]
-    },
-    {
-      label: '编辑',
-      submenu: [
-        { label: '撤销', role: 'undo' },
-        { label: '重做', role: 'redo' },
-        { type: 'separator' },
-        { label: '剪切', role: 'cut' },
-        { label: '复制', role: 'copy' },
-        { label: '粘贴', role: 'paste' },
-        { label: '删除', role: 'delete' },
-        { label: '全选', role: 'selectAll' }
-      ]
-    },
     {
       label: '学生功能',
       submenu: [
@@ -487,7 +474,7 @@ function startPythonAndCreateWindow() {
           click: () => mainWindow?.webContents.send('navigate', '#/admin/programs')
         },
         {
-          label: '学生管理',
+          label: '设置',
           click: () => mainWindow?.webContents.send('navigate', '#/admin/students')
         },
         {
@@ -533,6 +520,8 @@ function startPythonAndCreateWindow() {
     http.get(`${BACKEND_BASE_URL}/api/health`, (res) => {
       log(`Server ready with status code: ${res.statusCode}`);
       retries = 0; // reset on success
+      createWindow();
+      return;
 
       const checkReq = http.get(`${BACKEND_BASE_URL}/api/admin/check-setup`, (checkRes) => {
         let body = '';

@@ -1,82 +1,60 @@
 import React from 'react';
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SemesterProvider } from './contexts/SemesterContext';
-import Login from './pages/Login';
 import StudentLayout from './layouts/StudentLayout';
-import AdminLayout from './layouts/AdminLayout';
 import StudentCourses from './pages/StudentCourses';
 import StudentSchedule from './pages/StudentSchedule';
 import StudentTranscript from './pages/StudentTranscript';
 import StudentProgress from './pages/StudentProgress';
-import AdminDashboard from './pages/AdminDashboard';
 import AdminCourses from './pages/AdminCourses';
 import AdminPrograms from './pages/AdminPrograms';
-import AdminStudents from './pages/AdminStudents';
 import AdminProgramEdit from './pages/AdminProgramEdit';
 import AdminSemesterConfig from './pages/AdminSemesterConfig';
+import AdminStudents from './pages/AdminStudents';
 import './App.css';
 
-// 路由守卫组件
-const ProtectedRoute = ({ children, allowedRole }) => {
-  const { isAuthenticated, user, loading } = useAuth();
-  
-  if (loading) return <div>加载中...</div>;
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  
-  if (allowedRole && user?.role !== allowedRole) {
-    return <Navigate to="/login" replace />;
-  }
-  
-  return children;
-};
+function AppShell() {
+  const { loading, isAuthenticated } = useAuth();
 
-function App() {
+  if (loading) return <div>加载中...</div>;
+  if (!isAuthenticated) return <div>正在初始化本地用户...</div>;
+
   return (
-    <AuthProvider>
-      <SemesterProvider>
-        <Router>
-          <Routes>
-            {/* 登录页 - 公开访问 */}
-            <Route path="/login" element={<Login />} />
-            
-            {/* 学生路由 */}
-            <Route path="/student" element={
-              <ProtectedRoute allowedRole="student">
-                <StudentLayout />
-              </ProtectedRoute>
-            }>
+    <SemesterProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<StudentLayout />}>
+            <Route index element={<Navigate to="/student/courses" replace />} />
+            <Route path="student">
               <Route index element={<Navigate to="courses" replace />} />
               <Route path="courses" element={<StudentCourses />} />
               <Route path="schedule" element={<StudentSchedule />} />
               <Route path="transcript" element={<StudentTranscript />} />
               <Route path="progress" element={<StudentProgress />} />
             </Route>
-            
-            {/* 管理员路由 */}
-            <Route path="/admin" element={
-              <ProtectedRoute allowedRole="admin">
-                <AdminLayout />
-              </ProtectedRoute>
-            }>
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="admin">
+              <Route index element={<Navigate to="courses" replace />} />
+              <Route path="dashboard" element={<Navigate to="/admin/courses" replace />} />
               <Route path="courses" element={<AdminCourses />} />
               <Route path="programs" element={<AdminPrograms />} />
               <Route path="programs/:id" element={<AdminProgramEdit />} />
               <Route path="students" element={<AdminStudents />} />
               <Route path="semester-config" element={<AdminSemesterConfig />} />
             </Route>
-            
-            {/* 默认重定向 */}
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
-        </Router>
-      </SemesterProvider>
+          </Route>
+          <Route path="/login" element={<Navigate to="/student/courses" replace />} />
+          <Route path="*" element={<Navigate to="/student/courses" replace />} />
+        </Routes>
+      </Router>
+    </SemesterProvider>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
     </AuthProvider>
   );
 }

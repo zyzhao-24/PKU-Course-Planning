@@ -32,6 +32,8 @@ def _load_jwt_secret():
 
 JWT_SECRET = _load_jwt_secret()
 JWT_EXPIRE_HOURS = 24
+LOCAL_USERNAME = 'local'
+LOCAL_DISPLAY_NAME = '本地用户'
 
 # 临时登录会话存储（登录过程中使用）
 # {session_id: {
@@ -496,6 +498,23 @@ def finalize_login(session_id, user_info):
     return user, session['client']
 
 
+def bind_portal_session(session_id, user):
+    """Bind a completed PKU Portal login session to the local app user."""
+    session = get_login_session(session_id)
+    if not session or not user:
+        return False
+
+    _portal_sessions[user.id] = {
+        'client': session['client'],
+        'timestamp': datetime.now()
+    }
+
+    if session_id in _login_sessions:
+        del _login_sessions[session_id]
+
+    return True
+
+
 def get_portal_session(user_id):
     """获取用户的portal会话"""
     session_data = _portal_sessions.get(user_id)
@@ -637,6 +656,7 @@ def login_required(f):
 
 
 def student_required(f):
+    return login_required(f)
     """学生权限装饰器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -651,6 +671,7 @@ def student_required(f):
 
 
 def admin_required(f):
+    return login_required(f)
     """管理员权限装饰器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -665,6 +686,28 @@ def admin_required(f):
 
 
 # ========== 用户管理函数 ==========
+
+def get_or_create_local_user():
+    """Return the single local application user, creating it for a fresh DB."""
+    user = User.query.filter_by(username=LOCAL_USERNAME).first()
+    if user:
+        user.role = 'local'
+        if not user.name:
+            user.name = LOCAL_DISPLAY_NAME
+        user.last_login = datetime.utcnow()
+        db.session.commit()
+        return user
+
+    user = User(
+        username=LOCAL_USERNAME,
+        role='local',
+        name=LOCAL_DISPLAY_NAME,
+        last_login=datetime.utcnow()
+    )
+    db.session.add(user)
+    db.session.commit()
+    return user
+
 
 def create_or_update_student(username, name=None):
     """创建或更新学生账号"""

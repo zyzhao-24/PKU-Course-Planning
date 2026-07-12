@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../utils/axios';
 import Modal from '../components/Modal';
+import PortalConnectModal from '../components/PortalConnectModal';
 import { getScoreColor, getFillPercent, getGPA, calculateSetGPA, calculateSetCredits, isCreditCounted, GRADE_TO_GPA } from '../utils';
 
 // 动态彩虹背景组件
@@ -359,6 +360,7 @@ function StudentTranscript() {
   const [dissertation, setDissertation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [portalConnectOpen, setPortalConnectOpen] = useState(false);
   const [totalGPA, setTotalGPA] = useState('-.---');
   const [totalCredits, setTotalCredits] = useState(0);
   
@@ -444,6 +446,10 @@ function StudentTranscript() {
       }
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message;
+      if (err.response?.data?.portal_required) {
+        setPortalConnectOpen(true);
+        return;
+      }
       if (errorMsg.includes('IAAA会话已过期') || errorMsg.includes('Portal会话已过期')) {
         showModal('会话过期', '会话已过期，请退出后重新登录', 'error');
       } else {
@@ -490,6 +496,14 @@ function StudentTranscript() {
       >
         <div style={{ whiteSpace: 'pre-line' }}>{modal.message}</div>
       </Modal>
+      <PortalConnectModal
+        isOpen={portalConnectOpen}
+        onCancel={() => setPortalConnectOpen(false)}
+        onConnected={async () => {
+          setPortalConnectOpen(false);
+          await handleSync();
+        }}
+      />
       
       <RainbowStyle />
       

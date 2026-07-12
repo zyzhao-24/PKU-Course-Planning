@@ -46,7 +46,6 @@ function StudentCourses() {
     if (selectedSemester) {
       fetchCourseTypes();
       fetchSelectedCourses();
-      autoSelectAndSync();
     }
   }, [selectedSemester]);
 
