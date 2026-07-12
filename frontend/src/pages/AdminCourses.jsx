@@ -3,6 +3,7 @@ import axios from '../utils/axios';
 import { useSemester } from '../contexts/SemesterContext';
 import { DEPARTMENT_CODE_MAP, formatClassTimes, WEEK_DAYS, WEEK_TYPES } from '../utils';
 import Modal from '../components/Modal';
+import SemesterSelector from '../components/SemesterSelector';
 
 // 课程时段编辑器组件
 function ClassTimeEditor({ value = [], onChange }) {
@@ -476,8 +477,18 @@ function AdminCourses() {
       </Modal>
 
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h3 style={{ margin: 0 }}>课程管理 - {selectedSemester}</h3>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap',
+          marginBottom: '15px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>课程管理</h3>
+            <SemesterSelector />
+          </div>
           <button className="btn btn-primary" onClick={handleCreate}>+ 创建课程</button>
         </div>
       </div>

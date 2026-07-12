@@ -48,7 +48,7 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
   const [method, setMethod] = useState('password');
   const [sessionId, setSessionId] = useState(null);
   const [publicKey, setPublicKey] = useState(null);
-  const [step, setStep] = useState('method');
+  const [step, setStep] = useState('username');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [captcha, setCaptcha] = useState('');
@@ -60,14 +60,31 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const pollTimerRef = useRef(null);
+  const activeQrSessionRef = useRef(null);
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
     if (!isOpen) return;
-    setMethod('password');
+    beginPassword();
+
+    return () => {
+      stopPolling();
+      requestSeqRef.current += 1;
+    };
+  }, [isOpen]);
+
+  function stopPolling() {
+    activeQrSessionRef.current = null;
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }
+
+  function resetFields({ keepUsername = false } = {}) {
     setSessionId(null);
     setPublicKey(null);
-    setStep('method');
-    setUsername('');
+    if (!keepUsername) setUsername('');
     setPassword('');
     setCaptcha('');
     setSmsCode('');
@@ -76,59 +93,82 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
     setCaptchaImage(null);
     setQrImage(null);
     setError('');
-  }, [isOpen]);
+  }
 
-  useEffect(() => () => {
-    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-  }, []);
-
-  const initSession = async (nextMethod) => {
+  async function beginPassword({ keepUsername = false } = {}) {
+    const seq = requestSeqRef.current + 1;
+    requestSeqRef.current = seq;
+    stopPolling();
+    setMethod('password');
+    setStep('username');
+    resetFields({ keepUsername });
     setLoading(true);
-    setError('');
+
     try {
-      const res = await axios.post('/api/portal/init', { method: nextMethod });
+      const res = await axios.post('/api/portal/init', { method: 'password' });
+      if (requestSeqRef.current !== seq) return;
+
       if (res.data.success) {
         setSessionId(res.data.session_id);
         setPublicKey(res.data.public_key || null);
-        return res.data.session_id;
+        return;
       }
       throw new Error(res.data.message || '无法初始化北大登录');
     } catch (err) {
-      setError(err.response?.data?.message || err.message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const choosePassword = async () => {
-    setMethod('password');
-    const sid = await initSession('password');
-    if (sid) setStep('username');
-  };
-
-  const chooseQr = async () => {
-    setMethod('qr');
-    const sid = await initSession('qr');
-    if (!sid) return;
-    setLoading(true);
-    try {
-      const res = await axios.get(`/api/portal/qr?session_id=${sid}`);
-      if (res.data.success) {
-        setQrImage(res.data.qr_image);
-        setStep('qr');
-        pollQr(sid);
+      if (requestSeqRef.current === seq) {
+        setError(err.response?.data?.message || err.message);
       }
-    } catch (err) {
-      setError(err.response?.data?.message || err.message);
     } finally {
-      setLoading(false);
+      if (requestSeqRef.current === seq) {
+        setLoading(false);
+      }
     }
-  };
+  }
+
+  async function beginQr() {
+    const seq = requestSeqRef.current + 1;
+    requestSeqRef.current = seq;
+    stopPolling();
+    setMethod('qr');
+    setStep('qr');
+    resetFields();
+    setLoading(true);
+
+    try {
+      const initRes = await axios.post('/api/portal/init', { method: 'qr' });
+      if (requestSeqRef.current !== seq) return;
+
+      if (!initRes.data.success) {
+        throw new Error(initRes.data.message || '无法初始化北大登录');
+      }
+
+      const sid = initRes.data.session_id;
+      setSessionId(sid);
+      activeQrSessionRef.current = sid;
+
+      const qrRes = await axios.get(`/api/portal/qr?session_id=${sid}`);
+      if (requestSeqRef.current !== seq) return;
+
+      if (qrRes.data.success) {
+        setQrImage(qrRes.data.qr_image);
+        pollQr(sid);
+        return;
+      }
+      throw new Error(qrRes.data.message || '无法获取二维码');
+    } catch (err) {
+      if (requestSeqRef.current === seq) {
+        setError(err.response?.data?.message || err.message);
+      }
+    } finally {
+      if (requestSeqRef.current === seq) {
+        setLoading(false);
+      }
+    }
+  }
 
   const checkAuth = async (event) => {
     event.preventDefault();
-    if (!username.trim()) return;
+    if (!username.trim() || !sessionId) return;
     setLoading(true);
     setError('');
     try {
@@ -168,18 +208,14 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
   };
 
   const close = () => {
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
+    stopPolling();
+    requestSeqRef.current += 1;
     onCancel?.();
   };
 
   const finish = () => {
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
+    stopPolling();
+    requestSeqRef.current += 1;
     onConnected?.();
   };
 
@@ -212,8 +248,12 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
   };
 
   const pollQr = async (sid) => {
+    if (activeQrSessionRef.current !== sid) return;
+
     try {
       const res = await axios.post('/api/portal/qr-poll', { session_id: sid });
+      if (activeQrSessionRef.current !== sid) return;
+
       if (res.data.success && res.data.portal_connected) {
         finish();
         return;
@@ -224,7 +264,9 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
       }
       pollTimerRef.current = setTimeout(() => pollQr(sid), 2000);
     } catch (err) {
-      setError(err.response?.data?.message || err.message);
+      if (activeQrSessionRef.current === sid) {
+        setError(err.response?.data?.message || err.message);
+      }
     }
   };
 
@@ -235,33 +277,59 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
       onCancel={close}
       hideFooter
     >
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        padding: '4px',
+        marginBottom: '16px',
+        backgroundColor: '#f1f5f9',
+        borderRadius: '8px'
+      }}>
+        <button
+          type="button"
+          className={method === 'password' ? 'btn btn-primary' : 'btn btn-secondary'}
+          style={{ flex: 1 }}
+          disabled={loading && method === 'password'}
+          onClick={() => beginPassword({ keepUsername: true })}
+        >
+          密码登录
+        </button>
+        <button
+          type="button"
+          className={method === 'qr' ? 'btn btn-primary' : 'btn btn-secondary'}
+          style={{ flex: 1 }}
+          disabled={loading && method === 'qr'}
+          onClick={beginQr}
+        >
+          二维码登录
+        </button>
+      </div>
+
       {error && <div className="status-bar status-error" style={{ marginBottom: '15px' }}>{error}</div>}
 
-      {step === 'method' && (
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn btn-primary" style={{ flex: 1 }} disabled={loading} onClick={choosePassword}>
-            密码登录
-          </button>
-          <button className="btn btn-secondary" style={{ flex: 1 }} disabled={loading} onClick={chooseQr}>
-            二维码登录
-          </button>
-        </div>
-      )}
-
-      {step === 'username' && (
+      {method === 'password' && step === 'username' && (
         <form onSubmit={checkAuth}>
           <div className="form-group">
             <label>账号</label>
             <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
           </div>
-          <button className="btn btn-primary" disabled={loading || !username.trim()} style={{ width: '100%' }}>
-            下一步
+          <button className="btn btn-primary" disabled={loading || !username.trim() || !sessionId} style={{ width: '100%' }}>
+            {loading ? '初始化中...' : '下一步'}
           </button>
         </form>
       )}
 
-      {step === 'password' && (
+      {method === 'password' && step === 'password' && (
         <form onSubmit={submitPassword}>
+          <div className="form-group">
+            <label>账号</label>
+            <input
+              value={username}
+              readOnly
+              style={{ backgroundColor: '#f8fafc', color: '#64748b' }}
+            />
+          </div>
+
           <div className="form-group">
             <label>密码</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
@@ -277,7 +345,7 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
                     src={`data:image/jpeg;base64,${captchaImage}`}
                     alt="验证码"
                     onClick={fetchCaptcha}
-                    style={{ height: '40px', cursor: 'pointer' }}
+                    style={{ height: '40px', cursor: 'pointer', borderRadius: '4px' }}
                   />
                 )}
               </div>
@@ -306,10 +374,19 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
           <button className="btn btn-primary" disabled={loading || !password} style={{ width: '100%' }}>
             {loading ? '连接中...' : '连接并继续同步'}
           </button>
+
+          <button
+            type="button"
+            className="btn btn-text"
+            style={{ width: '100%', marginTop: '10px' }}
+            onClick={() => setStep('username')}
+          >
+            返回修改账号
+          </button>
         </form>
       )}
 
-      {step === 'qr' && (
+      {method === 'qr' && (
         <div style={{ textAlign: 'center' }}>
           {qrImage ? (
             <img
@@ -318,7 +395,7 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
               style={{ width: '220px', height: '220px' }}
             />
           ) : (
-            <div>二维码加载中...</div>
+            <div style={{ padding: '40px 0' }}>{loading ? '二维码加载中...' : '等待二维码...'}</div>
           )}
           <div style={{ marginTop: '15px', color: '#666' }}>请使用北京大学 App 扫码</div>
         </div>

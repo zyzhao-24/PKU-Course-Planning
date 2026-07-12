@@ -3,6 +3,7 @@ import axios from '../utils/axios';
 import { useSemester } from '../contexts/SemesterContext';
 import { DEPARTMENT_CODE_MAP, formatClassTimes, WEEK_DAYS, checkTimeConflict } from '../utils';
 import Modal from '../components/Modal';
+import SemesterSelector from '../components/SemesterSelector';
 
 function StudentCourses() {
   const { selectedSemester } = useSemester();
@@ -238,7 +239,19 @@ function StudentCourses() {
       </Modal>
 
       <div className="card">
-        <h3 style={{ margin: 0 }}>课程列表</h3>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap',
+          marginBottom: '15px',
+          borderBottom: '1px solid #edf2f7',
+          paddingBottom: '12px'
+        }}>
+          <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>课程列表</h3>
+          <SemesterSelector />
+        </div>
 
         <div className="search-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginTop: '15px', marginBottom: '20px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>

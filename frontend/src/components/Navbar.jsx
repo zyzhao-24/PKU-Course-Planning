@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import '../App.css';
 
-function Navbar({ semesters, selectedSemester, setSelectedSemester }) {
+function Navbar({ selectedSemester }) {
   const location = useLocation();
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
@@ -33,30 +33,6 @@ function Navbar({ semesters, selectedSemester, setSelectedSemester }) {
       </div>
       
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
-        {semesters && semesters.length > 0 && (
-          <div className="navbar-semester-selector" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ color: '#333', fontSize: '0.9rem', fontWeight: '500' }}>当前学期:</span>
-            <select 
-              value={selectedSemester} 
-              onChange={(e) => setSelectedSemester(e.target.value)}
-              style={{ 
-                padding: '6px 12px', 
-                borderRadius: '6px', 
-                border: '1px solid #ccc',
-                backgroundColor: '#f8f9fa',
-                color: '#333',
-                cursor: 'pointer',
-                outline: 'none',
-                fontSize: '0.9rem'
-              }}
-            >
-              {semesters.map(sem => (
-                <option key={sem} value={sem} style={{ color: 'black' }}>{sem}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
         {/* Gear Icon Menu */}
         <div className="navbar-menu-container" ref={menuRef} style={{ position: 'relative' }}>
             <button 

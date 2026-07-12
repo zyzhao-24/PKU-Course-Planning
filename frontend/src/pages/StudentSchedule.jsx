@@ -5,6 +5,7 @@ import CourseTable from '../components/CourseTable';
 import { formatClassTimes, DEPARTMENT_CODE_MAP, WEEK_DAYS, formatExamInfo, getWeekDate, parseWeeksFromRange } from '../utils';
 import Modal from '../components/Modal';
 import PortalConnectModal from '../components/PortalConnectModal';
+import SemesterSelector from '../components/SemesterSelector';
 
 function StudentSchedule() {
   const { selectedSemester, getFirstWeekMonday } = useSemester();
@@ -326,9 +327,21 @@ function StudentSchedule() {
       />
 
       <div className="card" id="schedule-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h3 style={{ margin: 0 }}>我的课表 - {selectedSemester}</h3>
-          <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap',
+          marginBottom: '15px',
+          borderBottom: '1px solid #edf2f7',
+          paddingBottom: '12px'
+        }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>我的课表</h3>
+            <SemesterSelector compact />
+          </div>
+          <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 'bold', color: '#555' }}>
               总学分: <span style={{ color: '#2c3e50', fontSize: '1.2em' }}>{courseDetails.reduce((sum, c) => sum + parseFloat(c.credits || 0), 0)}</span>
             </span>
