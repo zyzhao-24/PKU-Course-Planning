@@ -35,9 +35,17 @@ class Program(db.Model):
     channel = db.Column(db.Integer, nullable=False)  # 0=主修, 1=辅双
     year = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    source_info = db.Column(JSON, default=dict)
+    program_metadata = db.Column('metadata', JSON, default=dict)
+    total_credits = db.Column(db.Float, nullable=True)
+    raw_payload = db.Column(JSON, default=dict)
+    import_warnings = db.Column(JSON, default=list)
     
     # 关系
     categories = db.relationship('MainCategory', backref='program', cascade='all, delete-orphan', order_by='MainCategory.order_index')
+    requirement_rules = db.relationship('ProgramRequirementRule', backref='program', cascade='all, delete-orphan', order_by='ProgramRequirementRule.order_index')
+    mutual_exclusion_groups = db.relationship('ProgramMutualExclusionGroup', backref='program', cascade='all, delete-orphan', order_by='ProgramMutualExclusionGroup.order_index')
+    course_options = db.relationship('ProgramCourseOption', backref='program', cascade='all, delete-orphan', order_by='ProgramCourseOption.order_index')
 
 
 class MainCategory(db.Model):
@@ -49,6 +57,13 @@ class MainCategory(db.Model):
     program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     order_index = db.Column(db.Integer, default=0)
+    raw = db.Column(db.Text, nullable=True)
+    remark = db.Column(JSON, nullable=True)
+    requirement_raw = db.Column(db.String(50), nullable=True)
+    requirement_type = db.Column(db.String(20), nullable=True)
+    requirement_min = db.Column(db.Float, nullable=True)
+    requirement_max = db.Column(db.Float, nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
     
     # 关系
     nodes = db.relationship('Node', backref='main_category', cascade='all, delete-orphan', order_by='Node.order_index')
@@ -64,6 +79,15 @@ class Node(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey('nodes.id'), nullable=True)
     name = db.Column(db.String(100), nullable=False)
     order_index = db.Column(db.Integer, default=0)
+    raw = db.Column(db.Text, nullable=True)
+    node_kind = db.Column(db.String(30), nullable=False, default='module')
+    remark = db.Column(JSON, nullable=True)
+    requirement_raw = db.Column(db.String(50), nullable=True)
+    requirement_type = db.Column(db.String(20), nullable=True)
+    requirement_min = db.Column(db.Float, nullable=True)
+    requirement_max = db.Column(db.Float, nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    rules_raw = db.Column(JSON, default=list)
     
     # 合格规则（JSON数组）
     qualification_rules = db.Column(JSON, default=list)
@@ -82,6 +106,15 @@ class CourseList(db.Model):
     node_id = db.Column(db.Integer, db.ForeignKey('nodes.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     order_index = db.Column(db.Integer, default=0)
+    raw = db.Column(db.Text, nullable=True)
+    remark = db.Column(JSON, nullable=True)
+    course_category = db.Column(db.String(100), nullable=True)
+    requirement_raw = db.Column(db.String(50), nullable=True)
+    requirement_type = db.Column(db.String(20), nullable=True)
+    requirement_min = db.Column(db.Float, nullable=True)
+    requirement_max = db.Column(db.Float, nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    selection_rule = db.Column(JSON, default=dict)
     
     # 是否为毕业论文（特殊处理）
     is_dissertation = db.Column(db.Boolean, default=False)
@@ -100,6 +133,87 @@ class CourseList(db.Model):
     
     # 关系
     assignments = db.relationship('CourseListAssignment', backref='course_list', cascade='all, delete-orphan')
+    course_options = db.relationship('ProgramCourseOption', backref='course_list', cascade='all, delete-orphan', order_by='ProgramCourseOption.order_index')
+
+
+class ProgramCourseOption(db.Model):
+    """
+    培养方案课程包明细 - 保存 XLS 中列出的课程，不依赖 courses_basic。
+    """
+    __tablename__ = 'program_course_options'
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False, index=True)
+    course_list_id = db.Column(db.Integer, db.ForeignKey('course_lists.id'), nullable=False, index=True)
+    course_id = db.Column(db.String(20), nullable=True, index=True)
+    course_name = db.Column(db.String(200), nullable=True)
+    credits = db.Column(db.Float, nullable=True)
+    total_hours = db.Column(db.Float, nullable=True)
+    practice_total_hours = db.Column(db.Float, nullable=True)
+    semester = db.Column(db.String(50), nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    raw_payload = db.Column(JSON, default=dict)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProgramRequirementRule(db.Model):
+    """
+    培养方案要求规则 - 支持跨节点/课程列表求和等复杂规则，并保留 raw/parsed。
+    owner_type/owner_id 为多态引用：program/category/node/course_list。
+    """
+    __tablename__ = 'program_requirement_rules'
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False, index=True)
+    owner_type = db.Column(db.String(30), nullable=False)
+    owner_id = db.Column(db.Integer, nullable=True, index=True)
+    raw = db.Column(db.Text, nullable=False)
+    parsed = db.Column(JSON, default=dict)
+    target_names = db.Column(JSON, default=list)
+    metric = db.Column(db.String(20), nullable=True)
+    operator = db.Column(db.String(10), nullable=True)
+    value = db.Column(db.Float, nullable=True)
+    order_index = db.Column(db.Integer, default=0)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProgramMutualExclusionGroup(db.Model):
+    """
+    培养方案互斥组 - 默认 program 范围全局生效，owner 信息保留来源。
+    """
+    __tablename__ = 'program_mutual_exclusion_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False, index=True)
+    owner_type = db.Column(db.String(30), nullable=False)
+    owner_id = db.Column(db.Integer, nullable=True, index=True)
+    raw = db.Column(db.Text, nullable=False)
+    strategy = db.Column(JSON, default=dict)
+    order_index = db.Column(db.Integer, default=0)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    items = db.relationship(
+        'ProgramMutualExclusionItem',
+        backref='group',
+        cascade='all, delete-orphan',
+        order_by='ProgramMutualExclusionItem.order_index'
+    )
+
+
+class ProgramMutualExclusionItem(db.Model):
+    """
+    互斥组课程项。
+    """
+    __tablename__ = 'program_mutual_exclusion_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('program_mutual_exclusion_groups.id'), nullable=False, index=True)
+    course_id = db.Column(db.String(20), nullable=False, index=True)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 

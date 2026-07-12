@@ -1,0 +1,2284 @@
+{
+  "source": {
+    "filename": "yp_cs.xls",
+    "sheet_name": "sheet1",
+    "rows": 178,
+    "cols": 19
+  },
+  "metadata": {
+    "title": {
+      "raw": "教学计划详细信息——2024级信科计算机科学与技术专业本科生培养方案",
+      "value": "教学计划详细信息——2024级信科计算机科学与技术专业本科生培养方案"
+    },
+    "plan_name": {
+      "raw": "2024级信科计算机科学与技术专业本科生培养方案",
+      "value": "2024级信科计算机科学与技术专业本科生培养方案"
+    },
+    "applicable_scope": {
+      "raw": "2024级信科计算机科学与技术专业本科生",
+      "value": "2024级信科计算机科学与技术专业本科生"
+    },
+    "plan_type": {
+      "raw": "专业",
+      "value": "专业"
+    },
+    "degree": {
+      "raw": "理学学士",
+      "value": "理学学士"
+    },
+    "total_credits": {
+      "raw": "120",
+      "value": 120
+    },
+    "credit_description": {
+      "raw": "1.公共基础课程：45-51 学分\n2.专业必修课程：54 学分\n3.专业选修课程：15 学分",
+      "value": "1.公共基础课程：45-51 学分\n2.专业必修课程：54 学分\n3.专业选修课程：15 学分"
+    },
+    "program_intro": {
+      "raw": "1",
+      "value": "1"
+    },
+    "objectives": {
+      "raw": "1",
+      "value": "1"
+    },
+    "remark": {
+      "raw": "",
+      "value": null
+    },
+    "system_rules": []
+  },
+  "categories": [
+    {
+      "raw": "公共基础课程",
+      "name": "公共基础课程",
+      "requirement": {
+        "raw": "45-51",
+        "type": "credits",
+        "min": 45,
+        "max": 51
+      },
+      "remark": null,
+      "excel_row": 12,
+      "modules": [
+        {
+          "raw": "大学英语",
+          "name": "大学英语",
+          "requirement": {
+            "raw": "2-8",
+            "type": "credits",
+            "min": 2,
+            "max": 8
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 12,
+          "groups": [
+            {
+              "raw": "英语课",
+              "name": "英语课",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "全校必修",
+              "excel_row": 12,
+              "courses": []
+            }
+          ]
+        },
+        {
+          "raw": "思想政治理论必修课",
+          "name": "思想政治理论必修课",
+          "requirement": {
+            "raw": "19-",
+            "type": "credits",
+            "min": 19,
+            "max": null
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 13,
+          "groups": [
+            {
+              "raw": "学校思政课",
+              "name": "学校思政课",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "全校必修",
+              "excel_row": 13,
+              "courses": []
+            },
+            {
+              "raw": "元培思政课",
+              "name": "元培思政课",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "全校必修",
+              "excel_row": 14,
+              "courses": [
+                {
+                  "course_id": "04630960",
+                  "name": "中国近现代史纲要",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 12,
+                  "semester": null,
+                  "excel_row": 14
+                },
+                {
+                  "course_id": "04630950",
+                  "name": "思想道德修养与法律基础讨论班",
+                  "total_hours": 34,
+                  "credits": 0,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 15
+                },
+                {
+                  "course_id": "04630900",
+                  "name": "思想道德修养与法律基础",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 12,
+                  "semester": null,
+                  "excel_row": 16
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "思想政治理论选择性必修课",
+          "name": "思想政治理论选择性必修课",
+          "requirement": {
+            "raw": "1-",
+            "type": "courses",
+            "min": 1,
+            "max": null
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 17,
+          "groups": []
+        },
+        {
+          "raw": "劳动教育课",
+          "name": "劳动教育课",
+          "requirement": {
+            "raw": "32-",
+            "type": "hours",
+            "min": 32,
+            "max": null
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 18,
+          "groups": []
+        },
+        {
+          "raw": "信息课程",
+          "name": "信息课程",
+          "requirement": {
+            "raw": "3-",
+            "type": "credits",
+            "min": 3,
+            "max": null
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 19,
+          "groups": [
+            {
+              "raw": "计算概论课程",
+              "name": "计算概论课程",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "全校必修",
+              "excel_row": 19,
+              "courses": [
+                {
+                  "course_id": "04830041",
+                  "name": "计算概论A",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 19
+                },
+                {
+                  "course_id": "04830530",
+                  "name": "计算概论A（实验班）",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 20
+                },
+                {
+                  "course_id": "04830042",
+                  "name": "计算概论A上机实习课",
+                  "total_hours": 34,
+                  "credits": 0,
+                  "practice_total_hours": 34,
+                  "semester": null,
+                  "excel_row": 21
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "军事理论",
+          "name": "军事理论",
+          "requirement": {
+            "raw": "2-2",
+            "type": "credits",
+            "min": 2,
+            "max": 2
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 22,
+          "groups": [
+            {
+              "raw": "军事理论课",
+              "name": "军事理论课",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "全校必修",
+              "excel_row": 22,
+              "courses": []
+            }
+          ]
+        },
+        {
+          "raw": "体育课",
+          "name": "体育课",
+          "requirement": {
+            "raw": "4-4",
+            "type": "credits",
+            "min": 4,
+            "max": 4
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 23,
+          "groups": [
+            {
+              "raw": "体育课",
+              "name": "体育课",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "全校必修",
+              "excel_row": 23,
+              "courses": []
+            }
+          ]
+        },
+        {
+          "raw": "通识教育课",
+          "name": "通识教育课",
+          "requirement": {
+            "raw": "-",
+            "type": null,
+            "min": null,
+            "max": null
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 24,
+          "groups": []
+        },
+        {
+          "raw": "元培通识课",
+          "name": "元培通识课",
+          "requirement": {
+            "raw": "12-12",
+            "type": "credits",
+            "min": 12,
+            "max": 12
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 25,
+          "groups": [
+            {
+              "raw": "现代中国&现代世界",
+              "name": "现代中国&现代世界",
+              "requirement": {
+                "raw": "1-",
+                "type": "courses",
+                "min": 1,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "通选课",
+              "excel_row": 25,
+              "courses": [
+                {
+                  "course_id": "03232880",
+                  "name": "中国社会研究（政治学）",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 25
+                },
+                {
+                  "course_id": "03130905",
+                  "name": "中国社会研究",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 12,
+                  "semester": null,
+                  "excel_row": 26
+                },
+                {
+                  "course_id": "04631038",
+                  "name": "西方现代政治",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 27
+                },
+                {
+                  "course_id": "03100130",
+                  "name": "国外社会学学说（上）",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 28
+                },
+                {
+                  "course_id": "03130903",
+                  "name": "社会研究：经典与方法",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 29
+                },
+                {
+                  "course_id": "04632020",
+                  "name": "现代社会的基础：文化与文明",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 30
+                },
+                {
+                  "course_id": "02332213",
+                  "name": "西方政治思想（现代）",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 31
+                },
+                {
+                  "course_id": "03139130",
+                  "name": "现代西方社会思想",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 32
+                },
+                {
+                  "course_id": "02131810",
+                  "name": "伊斯兰教与现代世界",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 4,
+                  "semester": null,
+                  "excel_row": 33
+                }
+              ]
+            },
+            {
+              "raw": "中国古典文明&西方古典文明",
+              "name": "中国古典文明&西方古典文明",
+              "requirement": {
+                "raw": "1-",
+                "type": "courses",
+                "min": 1,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "通选课",
+              "excel_row": 34,
+              "courses": [
+                {
+                  "course_id": "02332976",
+                  "name": "《理想国》",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": null,
+                  "excel_row": 34
+                },
+                {
+                  "course_id": "02132864",
+                  "name": "《史记》解读",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 35
+                },
+                {
+                  "course_id": "02132750",
+                  "name": "中国通史 (古代部分)",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 8,
+                  "semester": null,
+                  "excel_row": 36
+                },
+                {
+                  "course_id": "02333202",
+                  "name": "《庄子》精读",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 34,
+                  "semester": null,
+                  "excel_row": 37
+                },
+                {
+                  "course_id": "02335220",
+                  "name": "《四书》精读",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 34,
+                  "semester": null,
+                  "excel_row": 38
+                }
+              ]
+            },
+            {
+              "raw": "现代科学",
+              "name": "现代科学",
+              "requirement": {
+                "raw": "-",
+                "type": "courses",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "通选课",
+              "excel_row": 39,
+              "courses": [
+                {
+                  "course_id": "04631826",
+                  "name": "人工智能研习实践",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 10,
+                  "semester": null,
+                  "excel_row": 39
+                },
+                {
+                  "course_id": "00430109",
+                  "name": "演示物理学",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 40
+                },
+                {
+                  "course_id": "04631042",
+                  "name": "创新产品研发基础",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 41
+                },
+                {
+                  "course_id": "03131900",
+                  "name": "社会博弈论",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 42
+                },
+                {
+                  "course_id": "00433331",
+                  "name": "简明量子力学",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 43
+                },
+                {
+                  "course_id": "01139380",
+                  "name": "普通生物学(B)",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 44
+                },
+                {
+                  "course_id": "01130780",
+                  "name": "生物进化论",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 45
+                },
+                {
+                  "course_id": "04631800",
+                  "name": "科技史",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 46
+                }
+              ]
+            },
+            {
+              "raw": "新生讨论课",
+              "name": "新生讨论课",
+              "requirement": {
+                "raw": "1-1",
+                "type": "courses",
+                "min": 1,
+                "max": 1
+              },
+              "remark": null,
+              "course_category": "通选课",
+              "excel_row": 47,
+              "courses": [
+                {
+                  "course_id": "04631024",
+                  "name": "苏轼的文学与人生",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 47
+                },
+                {
+                  "course_id": "04631020",
+                  "name": "海洋与气候变化",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 48
+                },
+                {
+                  "course_id": "04631121",
+                  "name": "现当代文学中的北京大学",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 49
+                },
+                {
+                  "course_id": "04631122",
+                  "name": "原神启动：提瓦特大陆的政治哲学",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 50
+                },
+                {
+                  "course_id": "04631123",
+                  "name": "历史题材创意写作",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 51
+                },
+                {
+                  "course_id": "04631125",
+                  "name": "原神启动：至冬之国的历史原型",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 52
+                },
+                {
+                  "course_id": "04631126",
+                  "name": "物理学的进化",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 53
+                },
+                {
+                  "course_id": "04631124",
+                  "name": "埃及猫的艺术史",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 54
+                },
+                {
+                  "course_id": "04631053",
+                  "name": "营造学社与中国建筑",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 55
+                },
+                {
+                  "course_id": "04631072",
+                  "name": "银发经济与创意设计",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 56
+                },
+                {
+                  "course_id": "04631037",
+                  "name": "整合科学讨论班",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 57
+                },
+                {
+                  "course_id": "04631085",
+                  "name": "法学的视野",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 58
+                },
+                {
+                  "course_id": "04631080",
+                  "name": "数学的证明与反驳",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 59
+                },
+                {
+                  "course_id": "04631103",
+                  "name": "经济发展与社会保障",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 60
+                },
+                {
+                  "course_id": "04631108",
+                  "name": "柏拉图《会饮篇》研读",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 61
+                },
+                {
+                  "course_id": "04631106",
+                  "name": "大物理",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 62
+                },
+                {
+                  "course_id": "04631059",
+                  "name": "教育：自我、社会与文化",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 63
+                },
+                {
+                  "course_id": "04631063",
+                  "name": "金融与社会",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 64
+                },
+                {
+                  "course_id": "04631073",
+                  "name": "化石与生命史",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 65
+                },
+                {
+                  "course_id": "04631075",
+                  "name": "从人口爆炸到人口减少：破译未来全球人口秩序",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 66
+                },
+                {
+                  "course_id": "04631079",
+                  "name": "经济与社会：关于动机、制度和现代性的思考",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 67
+                },
+                {
+                  "course_id": "04631081",
+                  "name": "中国社会转型与人口变迁",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 68
+                },
+                {
+                  "course_id": "04631112",
+                  "name": "自然与人：布封的《自然史》",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 69
+                },
+                {
+                  "course_id": "04631113",
+                  "name": "心理+脑科学+AI",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 70
+                },
+                {
+                  "course_id": "04631114",
+                  "name": "做园林的主人",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 71
+                },
+                {
+                  "course_id": "04631115",
+                  "name": "电影与我们置身的社会",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 72
+                },
+                {
+                  "course_id": "04631116",
+                  "name": "北京漫游",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 73
+                },
+                {
+                  "course_id": "04631117",
+                  "name": "地球宜居性的演变",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 74
+                },
+                {
+                  "course_id": "04631118",
+                  "name": "从物理世界到人工智能",
+                  "total_hours": 16,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 75
+                },
+                {
+                  "course_id": "04631119",
+                  "name": "信息规则与经济学范式",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 76
+                },
+                {
+                  "course_id": "04631120",
+                  "name": "城市史的八个瞬间",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 77
+                },
+                {
+                  "course_id": "04631083",
+                  "name": "理解图像",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": 6,
+                  "semester": null,
+                  "excel_row": 78
+                },
+                {
+                  "course_id": "04631089",
+                  "name": "人民主权与公民自由——《社会契约论》导读",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 79
+                },
+                {
+                  "course_id": "04631101",
+                  "name": "帝国的身影—晚期罗马帝国和神圣罗马帝国的历史与政治",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 80
+                },
+                {
+                  "course_id": "04631102",
+                  "name": "走近电影艺术",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 81
+                },
+                {
+                  "course_id": "04631104",
+                  "name": "地理大发现时代的史诗与世界图景",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 82
+                },
+                {
+                  "course_id": "04631091",
+                  "name": "数据科学面面观",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 83
+                },
+                {
+                  "course_id": "04631001",
+                  "name": "软物质物理和其在生命科学中的应用",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "大一上",
+                  "excel_row": 84
+                },
+                {
+                  "course_id": "04631100",
+                  "name": "人工智能初级研讨班",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": "大一上",
+                  "excel_row": 85
+                },
+                {
+                  "course_id": "04631107",
+                  "name": "思想钢印与雪泥鸿爪：注意、记忆与人脑",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": "大一上",
+                  "excel_row": 86
+                },
+                {
+                  "course_id": "04631105",
+                  "name": "[停开]大学、个体与社会",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 87
+                }
+              ]
+            },
+            {
+              "raw": "艺术类",
+              "name": "艺术类",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "通选课",
+              "excel_row": 88,
+              "courses": [
+                {
+                  "course_id": "04631818",
+                  "name": "色彩的审美实践",
+                  "total_hours": 51,
+                  "credits": 2,
+                  "practice_total_hours": 25,
+                  "semester": null,
+                  "excel_row": 88
+                },
+                {
+                  "course_id": "04631819",
+                  "name": "中国画的审美与实践",
+                  "total_hours": 51,
+                  "credits": 2,
+                  "practice_total_hours": 25,
+                  "semester": null,
+                  "excel_row": 89
+                },
+                {
+                  "course_id": "04631820",
+                  "name": "声乐实践",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 34,
+                  "semester": null,
+                  "excel_row": 90
+                },
+                {
+                  "course_id": "04631827",
+                  "name": "昆曲艺术与表演实践",
+                  "total_hours": 51,
+                  "credits": 2,
+                  "practice_total_hours": 26,
+                  "semester": null,
+                  "excel_row": 91
+                },
+                {
+                  "course_id": "04631828",
+                  "name": "古琴艺术与演奏实践",
+                  "total_hours": 51,
+                  "credits": 2,
+                  "practice_total_hours": 21,
+                  "semester": null,
+                  "excel_row": 92
+                },
+                {
+                  "course_id": "04631823",
+                  "name": "中国舞蹈艺术实践",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 93
+                },
+                {
+                  "course_id": "04631822",
+                  "name": "导演创作基本原理与技能",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 94
+                }
+              ]
+            },
+            {
+              "raw": "其他\n(备注:只计入学分，不计入类型)",
+              "name": "其他",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": {
+                "raw": "(备注:只计入学分，不计入类型)",
+                "value": "只计入学分，不计入类型"
+              },
+              "course_category": "通选课",
+              "excel_row": 95,
+              "courses": [
+                {
+                  "course_id": "04631829",
+                  "name": "实地研学：丝绸之路上的敦煌",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 95
+                },
+                {
+                  "course_id": "04631821",
+                  "name": "实地研学：辽金元时期的多元文明互动",
+                  "total_hours": 17,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 96
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "大学成长课",
+          "name": "大学成长课",
+          "requirement": {
+            "raw": "3-3",
+            "type": "credits",
+            "min": 3,
+            "max": 3
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 97,
+          "groups": [
+            {
+              "raw": "大学成长课程",
+              "name": "大学成长课程",
+              "requirement": {
+                "raw": "3-",
+                "type": "credits",
+                "min": 3,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "专业必修",
+              "excel_row": 97,
+              "courses": [
+                {
+                  "course_id": "04631816",
+                  "name": "书院成长课程",
+                  "total_hours": 68,
+                  "credits": 2,
+                  "practice_total_hours": 68,
+                  "semester": null,
+                  "excel_row": 97
+                },
+                {
+                  "course_id": "04631815",
+                  "name": "新生教育实践课程",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 98
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "非培养方案课程",
+          "name": "非培养方案课程",
+          "requirement": {
+            "raw": "0-",
+            "type": "credits",
+            "min": 0,
+            "max": null
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 99,
+          "groups": []
+        }
+      ]
+    },
+    {
+      "raw": "专业必修课程\n(备注:相关课程均可以由同名的实验班课程进行替代)",
+      "name": "专业必修课程",
+      "requirement": {
+        "raw": "54-",
+        "type": "credits",
+        "min": 54,
+        "max": null
+      },
+      "remark": {
+        "raw": "(备注:相关课程均可以由同名的实验班课程进行替代)",
+        "value": "相关课程均可以由同名的实验班课程进行替代"
+      },
+      "excel_row": 100,
+      "modules": [
+        {
+          "raw": "专业基础课\n(备注:相关课程均可以由同名的实验班课程进行替代)",
+          "name": "专业基础课",
+          "requirement": {
+            "raw": "19-19",
+            "type": "credits",
+            "min": 19,
+            "max": 19
+          },
+          "remark": {
+            "raw": "(备注:相关课程均可以由同名的实验班课程进行替代)",
+            "value": "相关课程均可以由同名的实验班课程进行替代"
+          },
+          "rules": [],
+          "mutual_exclusion": [
+            {
+              "raw": "00132511,00132301课程互斥",
+              "course_ids": [
+                "00132511",
+                "00132301"
+              ]
+            },
+            {
+              "raw": ",00132512,00132302课程互斥",
+              "course_ids": [
+                "00132512",
+                "00132302"
+              ]
+            },
+            {
+              "raw": ",00132611,00132321课程互斥",
+              "course_ids": [
+                "00132611",
+                "00132321"
+              ]
+            },
+            {
+              "raw": ",00132612,00132323课程互斥",
+              "course_ids": [
+                "00132612",
+                "00132323"
+              ]
+            }
+          ],
+          "excel_row": 100,
+          "groups": [
+            {
+              "raw": "专业基础课",
+              "name": "专业基础课",
+              "requirement": {
+                "raw": "19-",
+                "type": "credits",
+                "min": 19,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "专业必修",
+              "excel_row": 100,
+              "courses": [
+                {
+                  "course_id": "00132323",
+                  "name": "高等代数 (II )",
+                  "total_hours": 68,
+                  "credits": 4,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 100
+                },
+                {
+                  "course_id": "00132612",
+                  "name": "线性代数A (II)",
+                  "total_hours": 68,
+                  "credits": 4,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 101
+                },
+                {
+                  "course_id": "00132321",
+                  "name": "高等代数（I）",
+                  "total_hours": 68,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 102
+                },
+                {
+                  "course_id": "00132611",
+                  "name": "线性代数A (I)",
+                  "total_hours": 68,
+                  "credits": 4,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 103
+                },
+                {
+                  "course_id": "04830010",
+                  "name": "信息科学技术概论",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 104
+                },
+                {
+                  "course_id": "00132512",
+                  "name": "高等数学A（二）",
+                  "total_hours": 68,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 105
+                },
+                {
+                  "course_id": "00132301",
+                  "name": "数学分析（I）",
+                  "total_hours": 68,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 106
+                },
+                {
+                  "course_id": "00132511",
+                  "name": "高等数学A（一）",
+                  "total_hours": 68,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 107
+                },
+                {
+                  "course_id": "00132302",
+                  "name": "数学分析（II）",
+                  "total_hours": 68,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 108
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "专业核心课\n(备注:相关课程均可以由同名的实验班课程进行替代)",
+          "name": "专业核心课",
+          "requirement": {
+            "raw": "31-31",
+            "type": "credits",
+            "min": 31,
+            "max": 31
+          },
+          "remark": {
+            "raw": "(备注:相关课程均可以由同名的实验班课程进行替代)",
+            "value": "相关课程均可以由同名的实验班课程进行替代"
+          },
+          "rules": [],
+          "mutual_exclusion": [
+            {
+              "raw": "04831750,04831760课程互斥",
+              "course_ids": [
+                "04831750",
+                "04831760"
+              ]
+            },
+            {
+              "raw": ",04831750,04835240课程互斥",
+              "course_ids": [
+                "04831750",
+                "04835240"
+              ]
+            },
+            {
+              "raw": ",04831760,04835240课程互斥",
+              "course_ids": [
+                "04831760",
+                "04835240"
+              ]
+            },
+            {
+              "raw": ",04833300,04830281课程互斥",
+              "course_ids": [
+                "04833300",
+                "04830281"
+              ]
+            },
+            {
+              "raw": ",04834200,04835460课程互斥",
+              "course_ids": [
+                "04834200",
+                "04835460"
+              ]
+            },
+            {
+              "raw": ",04834260,04834490课程互斥",
+              "course_ids": [
+                "04834260",
+                "04834490"
+              ]
+            },
+            {
+              "raw": ",04835230,04834040课程互斥",
+              "course_ids": [
+                "04835230",
+                "04834040"
+              ]
+            },
+            {
+              "raw": ",04835310,04833400课程互斥",
+              "course_ids": [
+                "04835310",
+                "04833400"
+              ]
+            }
+          ],
+          "excel_row": 109,
+          "groups": [
+            {
+              "raw": "专业核心课",
+              "name": "专业核心课",
+              "requirement": {
+                "raw": "31-",
+                "type": "credits",
+                "min": 31,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "专业必修",
+              "excel_row": 109,
+              "courses": [
+                {
+                  "course_id": "04834260",
+                  "name": "操作系统",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "上/下",
+                  "excel_row": 109
+                },
+                {
+                  "course_id": "04834490",
+                  "name": "操作系统（实验班）",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "上/下",
+                  "excel_row": 110
+                },
+                {
+                  "course_id": "04830140",
+                  "name": "计算机组织与体系结构",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上/下",
+                  "excel_row": 111
+                },
+                {
+                  "course_id": "04834200",
+                  "name": "编译原理",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "上/下",
+                  "excel_row": 112
+                },
+                {
+                  "course_id": "04835460",
+                  "name": "编译原理（实验班）",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "下",
+                  "excel_row": 113
+                },
+                {
+                  "course_id": "04835430",
+                  "name": "信息学中的概率统计",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "下/上",
+                  "excel_row": 114
+                },
+                {
+                  "course_id": "04830281",
+                  "name": "算法设计与分析",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 115
+                },
+                {
+                  "course_id": "04832363",
+                  "name": "计算机系统导论讨论班",
+                  "total_hours": 34,
+                  "credits": 0,
+                  "practice_total_hours": 34,
+                  "semester": "上",
+                  "excel_row": 116
+                },
+                {
+                  "course_id": "04833040",
+                  "name": "计算机系统导论",
+                  "total_hours": 68,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 117
+                },
+                {
+                  "course_id": "04833400",
+                  "name": "离散数学与结构（I）",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 118
+                },
+                {
+                  "course_id": "04835310",
+                  "name": "离散数学基础",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 119
+                },
+                {
+                  "course_id": "04834040",
+                  "name": "人工智能引论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 120
+                },
+                {
+                  "course_id": "04835240",
+                  "name": "软件设计实践",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 121
+                },
+                {
+                  "course_id": "04831750",
+                  "name": "程序设计实习",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": 20,
+                  "semester": "下",
+                  "excel_row": 122
+                },
+                {
+                  "course_id": "04831760",
+                  "name": "程序设计实习(实验班)",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 123
+                },
+                {
+                  "course_id": "04835230",
+                  "name": "人工智能基础",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 124
+                },
+                {
+                  "course_id": "04833300",
+                  "name": "算法设计与分析（实验班）",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 125
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "毕业论文（设计）",
+          "name": "毕业论文（设计）",
+          "requirement": {
+            "raw": "4-4",
+            "type": "credits",
+            "min": 4,
+            "max": 4
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 126,
+          "groups": [
+            {
+              "raw": "毕业论文",
+              "name": "毕业论文",
+              "requirement": {
+                "raw": "4-4",
+                "type": "credits",
+                "min": 4,
+                "max": 4
+              },
+              "remark": null,
+              "course_category": "专业必修",
+              "excel_row": 126,
+              "courses": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "raw": "选修课程",
+      "name": "选修课程",
+      "requirement": {
+        "raw": "15-",
+        "type": "credits",
+        "min": 15,
+        "max": null
+      },
+      "remark": null,
+      "excel_row": 127,
+      "modules": [
+        {
+          "raw": "专业选修课\n(备注:要求在（1）-（5）课程类别中每类至少选修2学分。)",
+          "name": "专业选修课",
+          "requirement": {
+            "raw": "12-",
+            "type": "credits",
+            "min": 12,
+            "max": null
+          },
+          "remark": {
+            "raw": "(备注:要求在（1）-（5）课程类别中每类至少选修2学分。)",
+            "value": "要求在（1）-（5）课程类别中每类至少选修2学分。"
+          },
+          "rules": [],
+          "mutual_exclusion": [
+            {
+              "raw": "00431141,04833370课程互斥",
+              "course_ids": [
+                "00431141",
+                "04833370"
+              ]
+            },
+            {
+              "raw": ",00431143,04833371课程互斥",
+              "course_ids": [
+                "00431143",
+                "04833371"
+              ]
+            },
+            {
+              "raw": ",04830220,04830221课程互斥",
+              "course_ids": [
+                "04830220",
+                "04830221"
+              ]
+            },
+            {
+              "raw": ",04830260,04833440课程互斥",
+              "course_ids": [
+                "04830260",
+                "04833440"
+              ]
+            },
+            {
+              "raw": ",04831730,04833420课程互斥",
+              "course_ids": [
+                "04831730",
+                "04833420"
+              ]
+            },
+            {
+              "raw": ",04834210,04834480课程互斥",
+              "course_ids": [
+                "04834210",
+                "04834480"
+              ]
+            },
+            {
+              "raw": ",04834220,04834580课程互斥",
+              "course_ids": [
+                "04834220",
+                "04834580"
+              ]
+            },
+            {
+              "raw": ",04834760,04834990课程互斥",
+              "course_ids": [
+                "04834760",
+                "04834990"
+              ]
+            },
+            {
+              "raw": ",04835400,04835120课程互斥",
+              "course_ids": [
+                "04835400",
+                "04835120"
+              ]
+            }
+          ],
+          "excel_row": 127,
+          "groups": [
+            {
+              "raw": "（1）物理与电子类",
+              "name": "（1）物理与电子类",
+              "requirement": {
+                "raw": "2-",
+                "type": "credits",
+                "min": 2,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "任选",
+              "excel_row": 127,
+              "courses": [
+                {
+                  "course_id": "04833800",
+                  "name": "电子系统基础训练",
+                  "total_hours": 34,
+                  "credits": 1,
+                  "practice_total_hours": 30,
+                  "semester": "下",
+                  "excel_row": 127
+                },
+                {
+                  "course_id": "04830670",
+                  "name": "信号与系统",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 2,
+                  "semester": "上",
+                  "excel_row": 128
+                },
+                {
+                  "course_id": "04833370",
+                  "name": "信息科学中的物理学（上）",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "上",
+                  "excel_row": 129
+                },
+                {
+                  "course_id": "04833371",
+                  "name": "信息科学中的物理学（下）",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 130
+                },
+                {
+                  "course_id": "00431141",
+                  "name": "力学",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 131
+                },
+                {
+                  "course_id": "00431143",
+                  "name": "电磁学",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 132
+                },
+                {
+                  "course_id": "04831770",
+                  "name": "微电子与电路基础",
+                  "total_hours": 51,
+                  "credits": 2,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 133
+                }
+              ]
+            },
+            {
+              "raw": "（2）理论与算法类",
+              "name": "（2）理论与算法类",
+              "requirement": {
+                "raw": "2-",
+                "type": "credits",
+                "min": 2,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "任选",
+              "excel_row": 134,
+              "courses": [
+                {
+                  "course_id": "04830080",
+                  "name": "代数结构与组合数学",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 134
+                },
+                {
+                  "course_id": "04830070",
+                  "name": "集合论与图论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 135
+                },
+                {
+                  "course_id": "04830090",
+                  "name": "数理逻辑",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 136
+                },
+                {
+                  "course_id": "04830260",
+                  "name": "理论计算机科学基础",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 137
+                },
+                {
+                  "course_id": "00132304",
+                  "name": "数学分析 (III)",
+                  "total_hours": 68,
+                  "credits": 4,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 138
+                },
+                {
+                  "course_id": "04833900",
+                  "name": "密码学基础",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 139
+                },
+                {
+                  "course_id": "04833440",
+                  "name": "计算理论导论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "下",
+                  "excel_row": 140
+                }
+              ]
+            },
+            {
+              "raw": "（3）软件系统类",
+              "name": "（3）软件系统类",
+              "requirement": {
+                "raw": "2-",
+                "type": "credits",
+                "min": 2,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "任选",
+              "excel_row": 141,
+              "courses": [
+                {
+                  "course_id": "04830220",
+                  "name": "数据库概论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 141
+                },
+                {
+                  "course_id": "04830221",
+                  "name": "数据库概论（实验班）",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 142
+                },
+                {
+                  "course_id": "04834230",
+                  "name": "软件测试导论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 143
+                },
+                {
+                  "course_id": "04830410",
+                  "name": "信息安全引论",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 9,
+                  "semester": "上",
+                  "excel_row": 144
+                },
+                {
+                  "course_id": "04833020",
+                  "name": "软件分析技术",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "上",
+                  "excel_row": 145
+                },
+                {
+                  "course_id": "04834220",
+                  "name": "软件工程",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "上",
+                  "excel_row": 146
+                },
+                {
+                  "course_id": "04834580",
+                  "name": "软件工程（实验班）",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "下",
+                  "excel_row": 147
+                }
+              ]
+            },
+            {
+              "raw": "（4）系统结构与并行计算类",
+              "name": "（4）系统结构与并行计算类",
+              "requirement": {
+                "raw": "2-",
+                "type": "credits",
+                "min": 2,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "任选",
+              "excel_row": 148,
+              "courses": [
+                {
+                  "course_id": "04832520",
+                  "name": "并行程序设计原理",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 9,
+                  "semester": "下",
+                  "excel_row": 148
+                },
+                {
+                  "course_id": "04830100",
+                  "name": "数字逻辑设计",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下/上",
+                  "excel_row": 149
+                },
+                {
+                  "course_id": "04834480",
+                  "name": "计算机网络（实验班）",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "上/下",
+                  "excel_row": 150
+                },
+                {
+                  "course_id": "04834210",
+                  "name": "计算机网络",
+                  "total_hours": 85,
+                  "credits": 4,
+                  "practice_total_hours": 34,
+                  "semester": "上/下",
+                  "excel_row": 151
+                },
+                {
+                  "course_id": "04830145",
+                  "name": "计算机组织与体系结构实习",
+                  "total_hours": 34,
+                  "credits": 2,
+                  "practice_total_hours": 34,
+                  "semester": "上/下",
+                  "excel_row": 152
+                },
+                {
+                  "course_id": "04832240",
+                  "name": "并行与分布式计算导论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 153
+                }
+              ]
+            },
+            {
+              "raw": "（5）计算机应用与智能类",
+              "name": "（5）计算机应用与智能类",
+              "requirement": {
+                "raw": "2-",
+                "type": "credits",
+                "min": 2,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "任选",
+              "excel_row": 154,
+              "courses": [
+                {
+                  "course_id": "04834760",
+                  "name": "智能机器人系统导论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "上",
+                  "excel_row": 154
+                },
+                {
+                  "course_id": "04830230",
+                  "name": "计算机图形学",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 155
+                },
+                {
+                  "course_id": "04835120",
+                  "name": "自然语言处理基础",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 3,
+                  "semester": "下",
+                  "excel_row": 156
+                },
+                {
+                  "course_id": "04831730",
+                  "name": "机器学习概论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 8,
+                  "semester": "上",
+                  "excel_row": 157
+                },
+                {
+                  "course_id": "04834520",
+                  "name": "强化学习",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "上",
+                  "excel_row": 158
+                },
+                {
+                  "course_id": "04834920",
+                  "name": "计算机视觉导论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "下",
+                  "excel_row": 159
+                },
+                {
+                  "course_id": "04835400",
+                  "name": "自然语言处理",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 17,
+                  "semester": "上",
+                  "excel_row": 160
+                },
+                {
+                  "course_id": "04834990",
+                  "name": "智能机器人概论",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": 14,
+                  "semester": "上",
+                  "excel_row": 161
+                },
+                {
+                  "course_id": "04833420",
+                  "name": "机器学习",
+                  "total_hours": 51,
+                  "credits": 3,
+                  "practice_total_hours": null,
+                  "semester": "上",
+                  "excel_row": 162
+                }
+              ]
+            },
+            {
+              "raw": "（6）研究课程（即本科生科研训练）\n(备注:“研究课程”的论文内容不能与毕业论文的内容重复使用。)",
+              "name": "（6）研究课程（即本科生科研训练）",
+              "requirement": {
+                "raw": "0-6",
+                "type": "credits",
+                "min": 0,
+                "max": 6
+              },
+              "remark": {
+                "raw": "(备注:“研究课程”的论文内容不能与毕业论文的内容重复使用。)",
+                "value": "“研究课程”的论文内容不能与毕业论文的内容重复使用。"
+              },
+              "course_category": "任选",
+              "excel_row": 163,
+              "courses": [
+                {
+                  "course_id": "30330046",
+                  "name": "教师指导下的小组研究",
+                  "total_hours": 16,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 163
+                },
+                {
+                  "course_id": "30330045",
+                  "name": "教师指导下的小组研究",
+                  "total_hours": 204,
+                  "credits": 6,
+                  "practice_total_hours": 204,
+                  "semester": null,
+                  "excel_row": 164
+                },
+                {
+                  "course_id": "30330044",
+                  "name": "教师指导下的小组研究",
+                  "total_hours": 80,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 165
+                },
+                {
+                  "course_id": "30330043",
+                  "name": "教师指导下的小组研究",
+                  "total_hours": 136,
+                  "credits": 4,
+                  "practice_total_hours": 136,
+                  "semester": null,
+                  "excel_row": 166
+                },
+                {
+                  "course_id": "30330042",
+                  "name": "教师指导下的小组研究",
+                  "total_hours": 102,
+                  "credits": 3,
+                  "practice_total_hours": 102,
+                  "semester": null,
+                  "excel_row": 167
+                },
+                {
+                  "course_id": "30330041",
+                  "name": "教师指导下的小组研究",
+                  "total_hours": 68,
+                  "credits": 2,
+                  "practice_total_hours": 68,
+                  "semester": null,
+                  "excel_row": 168
+                },
+                {
+                  "course_id": "30330036",
+                  "name": "教师指导下的独立研究",
+                  "total_hours": 16,
+                  "credits": 1,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 169
+                },
+                {
+                  "course_id": "30330035",
+                  "name": "教师指导下的独立研究",
+                  "total_hours": 204,
+                  "credits": 6,
+                  "practice_total_hours": 204,
+                  "semester": null,
+                  "excel_row": 170
+                },
+                {
+                  "course_id": "30330033",
+                  "name": "教师指导下的独立研究",
+                  "total_hours": 136,
+                  "credits": 4,
+                  "practice_total_hours": 136,
+                  "semester": null,
+                  "excel_row": 171
+                },
+                {
+                  "course_id": "30330032",
+                  "name": "教师指导下的独立研究",
+                  "total_hours": 102,
+                  "credits": 3,
+                  "practice_total_hours": 102,
+                  "semester": null,
+                  "excel_row": 172
+                },
+                {
+                  "course_id": "30330031",
+                  "name": "教师指导下的独立研究",
+                  "total_hours": 68,
+                  "credits": 2,
+                  "practice_total_hours": 68,
+                  "semester": null,
+                  "excel_row": 173
+                },
+                {
+                  "course_id": "30330034",
+                  "name": "教师指导下的独立研究",
+                  "total_hours": 80,
+                  "credits": 5,
+                  "practice_total_hours": null,
+                  "semester": null,
+                  "excel_row": 174
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "raw": "自主选修课",
+          "name": "自主选修课",
+          "requirement": {
+            "raw": "-",
+            "type": null,
+            "min": null,
+            "max": null
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 175,
+          "groups": []
+        },
+        {
+          "raw": "数据结构与算法",
+          "name": "数据结构与算法",
+          "requirement": {
+            "raw": "3-3",
+            "type": "credits",
+            "min": 3,
+            "max": 3
+          },
+          "remark": null,
+          "rules": [],
+          "mutual_exclusion": [],
+          "excel_row": 176,
+          "groups": [
+            {
+              "raw": "数据结构与算法A",
+              "name": "数据结构与算法A",
+              "requirement": {
+                "raw": "-",
+                "type": "credits",
+                "min": null,
+                "max": null
+              },
+              "remark": null,
+              "course_category": "专业必修",
+              "excel_row": 176,
+              "courses": [
+                {
+                  "course_id": "04830540",
+                  "name": "数据结构与算法 (A) (实验班)",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": 34,
+                  "semester": null,
+                  "excel_row": 176
+                },
+                {
+                  "course_id": "04830494",
+                  "name": "数据结构与算法上机",
+                  "total_hours": 34,
+                  "credits": 0,
+                  "practice_total_hours": 34,
+                  "semester": null,
+                  "excel_row": 177
+                },
+                {
+                  "course_id": "04830050",
+                  "name": "数据结构与算法 (A)",
+                  "total_hours": 68,
+                  "credits": 3,
+                  "practice_total_hours": 34,
+                  "semester": null,
+                  "excel_row": 178
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "warnings": []
+}

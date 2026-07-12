@@ -8,3 +8,4 @@ pycryptodome==3.20.0
 requests==2.31.0
 playwright==1.40.0
 gevent==25.9.1
+xlrd==2.0.1
