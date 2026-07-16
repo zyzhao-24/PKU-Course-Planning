@@ -11,11 +11,41 @@
 from models import (
     Program, MainCategory, Node, CourseList, CourseListAssignment,
     Transcript, DissertationTranscript, User,
-    SelectedCourse, Course, CourseNameMapping
+    SelectedCourse, Course, CourseNameMapping, CollegeEnglishCoursePool
 )
 from database import db
 from typing import List, Dict, Any, Optional, Set, Tuple
 from collections import defaultdict
+from college_english import (
+    ENGLISH_REQUIREMENT_ALTERNATIVES,
+    ENGLISH_LEVELS,
+    ENGLISH_MODULES,
+    is_college_english_node,
+    module_label,
+    requirement_summary,
+    normalize_name,
+)
+
+
+def _is_college_english_module_list(course_list: Optional[CourseList]) -> bool:
+    """Whether a generated list represents one college English module."""
+    return bool(course_list and (course_list.raw or '').startswith('college_english:'))
+
+
+def _college_english_module(course_list: Optional[CourseList]) -> Optional[str]:
+    if not _is_college_english_module_list(course_list):
+        return None
+    return (course_list.raw or '').split(':', 1)[1]
+
+
+def _active_college_english_modules(user_id: int) -> Set[str]:
+    user = User.query.get(user_id)
+    if not user or not user.english_level:
+        return set()
+    modules = set()
+    for requirements in ENGLISH_REQUIREMENT_ALTERNATIVES.get(user.english_level, []):
+        modules.update(requirements.keys())
+    return modules
 
 
 class CourseInfoResolver:
@@ -262,10 +292,14 @@ class NonRepeatableDistributor:
         """获取该培养方案下所有不可重复列表"""
         program = Program.query.get(self.program_id)
         lists = []
+        active_english_modules = _active_college_english_modules(self.user_id)
         
         for category in program.categories:
             for node in category.nodes:
                 for cl in node.course_lists:
+                    module = _college_english_module(cl)
+                    if module and module not in active_english_modules:
+                        continue
                     if not cl.is_dissertation and not cl.is_repeatable:
                         lists.append(cl)
         
@@ -378,6 +412,384 @@ class RepeatableCalculator:
         # 按 order_index 排序
         lists.sort(key=lambda x: x.order_index or 0)
         return lists
+
+
+class CollegeEnglishCalculator:
+    """Calculate the shared college English requirement from user placement."""
+
+    def __init__(self, user_id: int, channel: int):
+        self.user_id = user_id
+        self.channel = channel
+        self.user = User.query.get(user_id)
+        self.level_options = {item["value"]: item for item in ENGLISH_LEVELS}
+
+    def calculate_node(self, node: Node, category_name: str, all_course_uuids: Set[str]) -> Dict:
+        module_lists = self._ensure_module_course_lists(node)
+        matches = self._match_courses(all_course_uuids)
+        matched_source_uuids = sorted(matches.keys())
+        level = self.user.english_level if self.user else None
+
+        base = {
+            'id': node.id,
+            'type': 'node',
+            'name': node.name,
+            'credits': 0.0,
+            'course_count': 0,
+            'qualified': False,
+            'qualification_rules': [],
+            'children': [],
+            'is_college_english': True,
+        }
+
+        if not level:
+            base['english_requirement'] = self._metadata(
+                level=None,
+                configured=False,
+                qualified=False,
+                selected_requirements={},
+                module_status={},
+                selected_courses=[],
+                matched_courses=list(matches.values()),
+                matched_source_uuids=matched_source_uuids,
+                message='请先在培养方案设置中选择大学英语分级。',
+            )
+            return base
+
+        if level == 'EXEMPT':
+            base.update({
+                'credits': 2.0,
+                'course_count': 0,
+                'qualified': True,
+            })
+            base['english_requirement'] = self._metadata(
+                level=level,
+                configured=True,
+                qualified=True,
+                selected_requirements={},
+                module_status={},
+                selected_courses=[],
+                matched_courses=list(matches.values()),
+                matched_source_uuids=matched_source_uuids,
+                message='当前设置为不适用/免修，大学英语要求视为已满足。',
+            )
+            return base
+
+        attempts = [
+            self._attempt_requirement(matches, requirements)
+            for requirements in ENGLISH_REQUIREMENT_ALTERNATIVES.get(level, [])
+        ]
+        best = self._choose_best_attempt(attempts)
+        qualified = bool(best and best['qualified'])
+        # Before a course is manually assigned, an incomplete requirement is
+        # only a candidate and remains unassigned. Once it is explicitly
+        # assigned to an English module, show it in the module even when the
+        # overall requirement is still incomplete, just like other lists.
+        selected_courses = []
+        if best:
+            selected_courses = (
+                best['selected_courses'] if qualified else
+                [course for course in best['selected_courses']
+                 if course.get('assigned_english')]
+            )
+        selected_credits = sum(float(course.get('credits') or 0) for course in selected_courses)
+
+        base.update({
+            'credits': selected_credits,
+            'course_count': len(selected_courses),
+            'qualified': qualified,
+        })
+        base['english_requirement'] = self._metadata(
+            level=level,
+            configured=True,
+            qualified=qualified,
+            selected_requirements=best['requirements'] if best else {},
+            module_status=best['module_status'] if best else {},
+            selected_courses=selected_courses,
+            matched_courses=list(matches.values()),
+            matched_source_uuids=matched_source_uuids,
+            message='大学英语要求已满足。' if qualified else '大学英语要求尚未满足。',
+        )
+        base['children'] = self._build_virtual_course_lists(
+            best['requirements'] if best else {},
+            selected_courses,
+            qualified,
+            module_lists,
+        )
+        return base
+
+    def _ensure_module_course_lists(self, node: Node) -> Dict[str, CourseList]:
+        """Keep real course-list records for College English modules."""
+        existing = {
+            (course_list.raw or ''): course_list
+            for course_list in node.course_lists
+            if (course_list.raw or '').startswith('college_english:')
+        }
+        changed = False
+        module_lists: Dict[str, CourseList] = {}
+
+        for index, module in enumerate([item['value'] for item in ENGLISH_MODULES]):
+            raw_key = f'college_english:{module}'
+            course_ids = self._course_ids_for_module(module)
+            filters = {'course_id': course_ids} if course_ids else {}
+            course_list = existing.get(raw_key)
+
+            if not course_list:
+                course_list = CourseList(
+                    node_id=node.id,
+                    name=module_label(module),
+                    order_index=1000 + index,
+                    raw=raw_key,
+                    course_category='college_english',
+                    filters=filters,
+                    is_repeatable=False,
+                    is_dissertation=False,
+                    qualification_rules=[],
+                )
+                db.session.add(course_list)
+                changed = True
+            else:
+                if course_list.name != module_label(module):
+                    course_list.name = module_label(module)
+                    changed = True
+                if course_list.filters != filters:
+                    course_list.filters = filters
+                    changed = True
+                if course_list.course_category != 'college_english':
+                    course_list.course_category = 'college_english'
+                    changed = True
+                if course_list.order_index != 1000 + index:
+                    course_list.order_index = 1000 + index
+                    changed = True
+
+            module_lists[module] = course_list
+
+        if changed:
+            db.session.commit()
+
+        return module_lists
+
+    def _build_virtual_course_lists(
+        self,
+        requirements: Dict[str, float],
+        selected_courses: List[Dict],
+        qualified: bool,
+        module_lists: Dict[str, CourseList],
+    ) -> List[Dict]:
+        courses_by_module = defaultdict(list)
+        for course in selected_courses:
+            courses_by_module[course.get('english_module')].append(course)
+
+        children = []
+        for index, (module, required_credits) in enumerate(requirements.items()):
+            course_list = module_lists.get(module)
+            if not course_list:
+                continue
+            courses = courses_by_module.get(module, [])
+            credits = sum(float(course.get('credits') or 0) for course in courses)
+            child_qualified = qualified and credits >= float(required_credits) - 0.01
+            children.append({
+                'id': course_list.id,
+                'type': 'course_list',
+                'name': course_list.name,
+                'credits': credits,
+                'course_count': len(courses),
+                'qualified': child_qualified,
+                'is_college_english_virtual': True,
+                'english_module': module,
+                'is_repeatable': course_list.is_repeatable,
+                'is_dissertation': course_list.is_dissertation,
+                'filters': course_list.filters or {},
+                'max_courses': course_list.max_courses,
+                'qualification_rules': [{
+                    'min_credits': float(required_credits),
+                    'min_courses': None,
+                    'filters': {},
+                }],
+                'courses': courses,
+                'order_index': index,
+            })
+        return children
+
+    def _course_ids_for_module(self, module: str) -> List[str]:
+        rows = CollegeEnglishCoursePool.query.filter_by(
+            active=True,
+            module=module,
+        ).order_by(
+            CollegeEnglishCoursePool.order_index,
+            CollegeEnglishCoursePool.course_id,
+        ).all()
+        seen = set()
+        course_ids = []
+        for row in rows:
+            course_id = str(row.course_id or '').strip()
+            if course_id and course_id not in seen:
+                seen.add(course_id)
+                course_ids.append(course_id)
+        return course_ids
+
+    def _metadata(
+        self,
+        *,
+        level: Optional[str],
+        configured: bool,
+        qualified: bool,
+        selected_requirements: Dict[str, float],
+        module_status: Dict[str, Dict[str, Any]],
+        selected_courses: List[Dict],
+        matched_courses: List[Dict],
+        matched_source_uuids: List[str],
+        message: str,
+    ) -> Dict:
+        option = self.level_options.get(level or '')
+        missing = sum(max(0.0, float(status.get('required', 0)) - float(status.get('credits', 0)))
+                      for status in module_status.values())
+        return {
+            'level': level,
+            'level_label': option['label'] if option else None,
+            'configured': configured,
+            'qualified': qualified,
+            'summary': requirement_summary(level),
+            'selected_requirements': selected_requirements,
+            'module_status': module_status,
+            'missing_credits': missing,
+            'selected_source_uuids': [course['source_uuid'] for course in selected_courses],
+            'selected_courses': selected_courses,
+            'matched_source_uuids': matched_source_uuids,
+            'matched_courses': matched_courses,
+            'message': message,
+        }
+
+    def _match_courses(self, all_course_uuids: Set[str]) -> Dict[str, Dict]:
+        assignments = {}
+        excluded_uuids = set()
+        if all_course_uuids:
+            assignment_rows = CourseListAssignment.query.filter(
+                CourseListAssignment.user_id == self.user_id,
+                CourseListAssignment.source_uuid.in_(list(all_course_uuids)),
+            ).all()
+            for assignment in assignment_rows:
+                if assignment.source_type == 'college_english_excluded':
+                    excluded_uuids.add(assignment.source_uuid)
+                elif assignment.source_type == 'course':
+                    assignments[assignment.source_uuid] = assignment
+
+        pool = CollegeEnglishCoursePool.query.filter_by(active=True).order_by(
+            CollegeEnglishCoursePool.order_index,
+            CollegeEnglishCoursePool.id,
+        ).all()
+        by_course_id = defaultdict(list)
+        by_name = defaultdict(list)
+        for item in pool:
+            by_course_id[item.course_id].append(item.module)
+            by_name[normalize_name(item.course_name)].append(item.module)
+
+        matches: Dict[str, Dict] = {}
+        for source_uuid in all_course_uuids:
+            if source_uuid in excluded_uuids:
+                continue
+
+            info = CourseInfoResolver.resolve(self.user_id, source_uuid, self.channel)
+            if not info:
+                continue
+
+            modules = []
+            assignment = assignments.get(source_uuid)
+            if assignment:
+                # A normal assignment is authoritative. An English course
+                # only remains eligible for the English requirement when it
+                # is assigned to an English module list.
+                assigned_module = _college_english_module(assignment.course_list)
+                if not assigned_module:
+                    continue
+                modules.append(assigned_module)
+                assigned_english = True
+            else:
+                if info.get('course_id') in by_course_id:
+                    modules.extend(by_course_id[info['course_id']])
+                name_key = normalize_name(info.get('course_name'))
+                if not modules and name_key in by_name:
+                    modules.extend(by_name[name_key])
+                assigned_english = False
+            if not modules:
+                continue
+
+            matches[source_uuid] = {
+                **info,
+                'english_modules': sorted(set(modules)),
+                'assigned_english': assigned_english,
+            }
+
+        return matches
+
+    def _attempt_requirement(self, matches: Dict[str, Dict], requirements: Dict[str, float]) -> Dict:
+        used_uuids: Set[str] = set()
+        selected_courses: List[Dict] = []
+        module_status: Dict[str, Dict[str, Any]] = {}
+
+        for module, required_credits in requirements.items():
+            credits = 0.0
+            module_courses = []
+            candidates = [
+                course for course in matches.values()
+                if module in course.get('english_modules', [])
+            ]
+            candidates.sort(key=lambda c: (
+                0 if c.get('has_grade') else 1,
+                -float(c.get('credits') or 0),
+                c.get('course_name') or '',
+                c.get('source_uuid') or '',
+            ))
+
+            for course in candidates:
+                if course['source_uuid'] in used_uuids:
+                    continue
+                selected = {
+                    **course,
+                    'english_module': module,
+                    'english_module_label': module_label(module),
+                }
+                module_courses.append(selected)
+                selected_courses.append(selected)
+                used_uuids.add(course['source_uuid'])
+                credits += float(course.get('credits') or 0)
+                if credits >= float(required_credits) - 0.01:
+                    break
+
+            module_status[module] = {
+                'module': module,
+                'label': module_label(module),
+                'required': float(required_credits),
+                'credits': credits,
+                'qualified': credits >= float(required_credits) - 0.01,
+                'courses': module_courses,
+            }
+
+        qualified = all(status['qualified'] for status in module_status.values())
+        total_required = sum(float(value) for value in requirements.values())
+        total_credits = sum(float(status['credits']) for status in module_status.values())
+        missing = sum(max(0.0, float(status['required']) - float(status['credits']))
+                      for status in module_status.values())
+        return {
+            'requirements': requirements,
+            'module_status': module_status,
+            'selected_courses': selected_courses,
+            'qualified': qualified,
+            'total_required': total_required,
+            'total_credits': total_credits,
+            'missing': missing,
+        }
+
+    def _choose_best_attempt(self, attempts: List[Dict]) -> Optional[Dict]:
+        if not attempts:
+            return None
+        return max(
+            attempts,
+            key=lambda attempt: (
+                1 if attempt['qualified'] else 0,
+                -abs(attempt['total_credits'] - attempt['total_required']) if attempt['qualified'] else attempt['total_credits'],
+                -attempt['missing'],
+            )
+        )
 
 
 class DissertationCalculator:
@@ -501,11 +913,13 @@ class NodeCalculator:
     节点计算器
     """
     
-    def __init__(self, user_id: int, channel: int, program_id: int):
+    def __init__(self, user_id: int, channel: int, program_id: int,
+                 special_node_results: Optional[Dict[int, Dict]] = None):
         self.user_id = user_id
         self.channel = channel
         self.program_id = program_id
         self.result_builder = CourseListResultBuilder(user_id, channel)
+        self.special_node_results = special_node_results or {}
     
     def calculate(self, node: Node, 
                   non_repeatable_assignments: Dict[str, Optional[int]],
@@ -513,6 +927,9 @@ class NodeCalculator:
         """
         计算节点的学分、门数和合格状态
         """
+        if node.id in self.special_node_results:
+            return self.special_node_results[node.id]
+
         # 1. 计算本节点的课程列表
         list_results = []
         for cl in node.course_lists:
@@ -639,26 +1056,33 @@ class UnassignedCollector:
     收集当前通道下所有未分配到不可重复列表的课程
     """
     
-    def __init__(self, user_id: int, channel: int):
+    def __init__(self, user_id: int, channel: int, course_uuids: Optional[Set[str]] = None):
         self.user_id = user_id
         self.channel = channel
+        self.course_uuids = course_uuids
     
     def collect(self) -> List[Dict]:
         """收集未分配的课程（只包含本通道的）"""
         # 获取本通道的所有课程uuid
-        uuids = self._collect_course_uuids()
+        uuids = self.course_uuids if self.course_uuids is not None else self._collect_course_uuids()
+        if not uuids:
+            return []
         
-        # 查询这些课程中未分配的
+        # 查询这些课程中未分配的；没有 assignment 记录的课程也视为未分配
         assignments = CourseListAssignment.query.filter(
             CourseListAssignment.user_id == self.user_id,
             CourseListAssignment.source_type == 'course',
-            CourseListAssignment.source_uuid.in_(list(uuids)),
-            CourseListAssignment.course_list_id == None
+            CourseListAssignment.source_uuid.in_(list(uuids))
         ).all()
+        assignment_map = {a.source_uuid: a for a in assignments}
+        unassigned_uuids = [
+            uuid for uuid in uuids
+            if uuid not in assignment_map or assignment_map[uuid].course_list_id is None
+        ]
         
         courses = []
-        for a in assignments:
-            info = CourseInfoResolver.resolve(self.user_id, a.source_uuid, self.channel)
+        for uuid in unassigned_uuids:
+            info = CourseInfoResolver.resolve(self.user_id, uuid, self.channel)
             if info:
                 courses.append(info)
         
@@ -788,6 +1212,14 @@ class CourseMoveManager:
                 db.session.add(assignment)
             else:
                 assignment.course_list_id = target_list_id
+
+            # A successful manual move supersedes the legacy English
+            # exclusion marker, regardless of the destination list.
+            CourseListAssignment.query.filter_by(
+                user_id=self.user_id,
+                source_type='college_english_excluded',
+                source_uuid=source_uuid,
+            ).delete()
             
             db.session.commit()
             return True, "移动成功"
@@ -832,21 +1264,35 @@ class ProgramProgressCalculator:
         
         # 1. 收集所有课程 uuid
         all_uuids = self._collect_course_uuids(channel)
-        
-        # 2. 只在recalculate时执行自动分配，否则读取现有分配
+        # On recalculation, assign all courses first (including English), then
+        # rebuild the English view from the persisted assignments.
         if auto_distribute:
+            self._build_college_english_results(program, channel, all_uuids)
             distributor = NonRepeatableDistributor(self.user_id, channel, program_id)
-            non_repeatable_assignments = distributor.distribute(all_uuids)
+            distributor.distribute(all_uuids)
+            special_node_results, college_english_uuids = self._build_college_english_results(
+                program,
+                channel,
+                all_uuids,
+            )
+            distributable_uuids = all_uuids - college_english_uuids
+            non_repeatable_assignments = self._load_existing_assignments(channel, distributable_uuids)
         else:
-            # 读取现有的分配（从数据库查询）
-            non_repeatable_assignments = self._load_existing_assignments(channel)
+            special_node_results, college_english_uuids = self._build_college_english_results(
+                program,
+                channel,
+                all_uuids,
+            )
+            distributable_uuids = all_uuids - college_english_uuids
+            # Read the current assignments from the database.
+            non_repeatable_assignments = self._load_existing_assignments(channel, distributable_uuids)
         
         # 3. 计算可重复列表（当场计算，不保存）
         repeatable_calc = RepeatableCalculator(self.user_id, channel, program_id)
-        repeatable_results = repeatable_calc.calculate(all_uuids)
+        repeatable_results = repeatable_calc.calculate(distributable_uuids)
         
         # 4. 计算每个主类别
-        node_calc = NodeCalculator(self.user_id, channel, program_id)
+        node_calc = NodeCalculator(self.user_id, channel, program_id, special_node_results)
         
         category_results = []
         for category in program.categories:
@@ -868,7 +1314,7 @@ class ProgramProgressCalculator:
             })
         
         # 5. 获取未分配课程（只显示本通道）
-        unassigned = UnassignedCollector(self.user_id, channel).collect()
+        unassigned = UnassignedCollector(self.user_id, channel, distributable_uuids).collect()
         
         # 6. 总体合格判定
         is_qualified = all(c['qualified'] for c in category_results)
@@ -884,10 +1330,33 @@ class ProgramProgressCalculator:
             'unassigned_courses': unassigned
         }
     
-    def _load_existing_assignments(self, channel: int) -> Dict[str, Optional[int]]:
+    def _build_college_english_results(
+        self,
+        program: Program,
+        channel: int,
+        all_uuids: Set[str],
+    ) -> Tuple[Dict[int, Dict], Set[str]]:
+        calculator = CollegeEnglishCalculator(self.user_id, channel)
+        results: Dict[int, Dict] = {}
+        matched_uuids: Set[str] = set()
+
+        for category in program.categories:
+            for node in category.nodes:
+                if not is_college_english_node(category.name, node.name):
+                    continue
+                result = calculator.calculate_node(node, category.name, all_uuids)
+                results[node.id] = result
+                matched_uuids.update(
+                    result.get('english_requirement', {}).get('selected_source_uuids', [])
+                )
+
+        return results, matched_uuids
+
+    def _load_existing_assignments(self, channel: int, all_uuids: Optional[Set[str]] = None) -> Dict[str, Optional[int]]:
         """从数据库加载现有的分配关系"""
         # 获取本通道的所有课程uuid
-        all_uuids = self._collect_course_uuids(channel)
+        if all_uuids is None:
+            all_uuids = self._collect_course_uuids(channel)
         
         # 查询这些课程的现有分配
         assignments = CourseListAssignment.query.filter(
@@ -955,10 +1424,15 @@ class ProgramProgressCalculator:
         if not user:
             return
         
-        # 清除旧的分配（但保留记录）
+        # Clear normal assignments and legacy/manual English exclusions so a
+        # recalculation can assign every eligible course again.
         CourseListAssignment.query.filter_by(
             user_id=self.user_id
         ).update({'course_list_id': None})
+        CourseListAssignment.query.filter_by(
+            user_id=self.user_id,
+            source_type='college_english_excluded',
+        ).delete()
         db.session.commit()
         
         # 重新计算 - 传入 auto_distribute=True

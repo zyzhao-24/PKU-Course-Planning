@@ -14,12 +14,21 @@ from werkzeug.utils import secure_filename
 from models import (
     db, Program, MainCategory, Node, CourseList, CourseListAssignment, User,
     Transcript, ExchangeTranscript, DissertationTranscript,
-    ProgramCourseOption, ProgramMutualExclusionGroup, ProgramRequirementRule
+    ProgramCourseOption, ProgramMutualExclusionGroup, ProgramRequirementRule,
+    CollegeEnglishCoursePool
 )
 from program_calculator import ProgramProgressCalculator
 from auth_utils import login_required, admin_required, student_required, get_current_user
 from program_xls_parser.db_importer import import_parsed_program
 from program_xls_parser.parser import parse_xls
+from college_english import (
+    get_english_options,
+    seed_default_pool,
+    serialize_pool_item,
+    is_college_english_node,
+    validate_english_level,
+    validate_english_module,
+)
 
 program_bp = Blueprint('program', __name__, url_prefix='/api')
 
@@ -564,8 +573,16 @@ def update_student_program_settings(current_user):
     data = request.json or {}
 
     try:
-        major_program_id = _optional_program_id(data.get('major_program_id'), '主修方案')
-        minor_program_id = _optional_program_id(data.get('minor_program_id'), '辅双方案')
+        major_program_id = (
+            _optional_program_id(data.get('major_program_id'), '主修方案')
+            if 'major_program_id' in data
+            else current_user.major_program_id
+        )
+        minor_program_id = (
+            _optional_program_id(data.get('minor_program_id'), '辅双方案')
+            if 'minor_program_id' in data
+            else current_user.minor_program_id
+        )
 
         if major_program_id:
             major_program = Program.query.get(major_program_id)
@@ -579,6 +596,8 @@ def update_student_program_settings(current_user):
 
         current_user.major_program_id = major_program_id
         current_user.minor_program_id = minor_program_id
+        if 'english_level' in data:
+            current_user.english_level = validate_english_level(data.get('english_level'))
         db.session.commit()
         return jsonify({
             'success': True,
@@ -589,6 +608,7 @@ def update_student_program_settings(current_user):
                 'role': current_user.role,
                 'major_program_id': current_user.major_program_id,
                 'minor_program_id': current_user.minor_program_id,
+                'english_level': current_user.english_level,
             }
         })
     except ValueError as e:
@@ -606,6 +626,146 @@ def _optional_program_id(value, label):
         return int(value)
     except (TypeError, ValueError):
         raise ValueError(f'{label}无效')
+
+
+# ==================== 大学英语设置 API ====================
+
+@program_bp.route('/college-english/options', methods=['GET'])
+@login_required
+def get_college_english_options(current_user):
+    return jsonify({
+        'success': True,
+        **get_english_options(current_user.english_level)
+    })
+
+
+@program_bp.route('/college-english/pool', methods=['GET'])
+@login_required
+def get_college_english_pool(current_user):
+    module = request.args.get('module')
+    keyword = (request.args.get('keyword') or '').strip()
+    include_inactive = request.args.get('include_inactive', 'true').lower() == 'true'
+
+    query = CollegeEnglishCoursePool.query
+    if module:
+        validate_english_module(module)
+        query = query.filter_by(module=module)
+    if not include_inactive:
+        query = query.filter_by(active=True)
+    if keyword:
+        like = f"%{keyword}%"
+        query = query.filter(
+            (CollegeEnglishCoursePool.course_id.like(like)) |
+            (CollegeEnglishCoursePool.course_name.like(like))
+        )
+
+    items = query.order_by(
+        CollegeEnglishCoursePool.module,
+        CollegeEnglishCoursePool.order_index,
+        CollegeEnglishCoursePool.course_id
+    ).all()
+    return jsonify({
+        'success': True,
+        'items': [serialize_pool_item(item) for item in items],
+        **get_english_options(current_user.english_level),
+    })
+
+
+@program_bp.route('/college-english/pool', methods=['POST'])
+@login_required
+def create_college_english_pool_item(current_user):
+    data = request.json or {}
+    try:
+        item = CollegeEnglishCoursePool(
+            course_id=str(data.get('course_id') or '').strip(),
+            course_name=str(data.get('course_name') or '').strip(),
+            module=validate_english_module(data.get('module')),
+            active=bool(data.get('active', True)),
+            notes=(data.get('notes') or '').strip() or None,
+            order_index=int(data.get('order_index') or 0),
+        )
+        if not item.course_id or not item.course_name:
+            return jsonify({'success': False, 'message': '课程号和课程名不能为空'}), 400
+
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({'success': True, 'item': serialize_pool_item(item)})
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@program_bp.route('/college-english/pool/<int:item_id>', methods=['PUT'])
+@login_required
+def update_college_english_pool_item(item_id, current_user):
+    item = CollegeEnglishCoursePool.query.get(item_id)
+    if not item:
+        return jsonify({'success': False, 'message': 'College English pool item not found'}), 404
+
+    data = request.json or {}
+    try:
+        if 'course_id' in data:
+            item.course_id = str(data.get('course_id') or '').strip()
+        if 'course_name' in data:
+            item.course_name = str(data.get('course_name') or '').strip()
+        if 'module' in data:
+            item.module = validate_english_module(data.get('module'))
+        if 'active' in data:
+            item.active = bool(data.get('active'))
+        if 'notes' in data:
+            item.notes = (data.get('notes') or '').strip() or None
+        if 'order_index' in data:
+            item.order_index = int(data.get('order_index') or 0)
+        if not item.course_id or not item.course_name:
+            return jsonify({'success': False, 'message': '课程号和课程名不能为空'}), 400
+
+        db.session.commit()
+        return jsonify({'success': True, 'item': serialize_pool_item(item)})
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@program_bp.route('/college-english/pool/<int:item_id>', methods=['DELETE'])
+@login_required
+def delete_college_english_pool_item(item_id, current_user):
+    item = CollegeEnglishCoursePool.query.get(item_id)
+    if not item:
+        return jsonify({'success': False, 'message': 'College English pool item not found'}), 404
+
+    try:
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@program_bp.route('/college-english/pool/reset-defaults', methods=['POST'])
+@login_required
+def reset_college_english_pool(current_user):
+    try:
+        count = seed_default_pool(reset=True)
+        items = CollegeEnglishCoursePool.query.order_by(
+            CollegeEnglishCoursePool.module,
+            CollegeEnglishCoursePool.order_index,
+            CollegeEnglishCoursePool.course_id
+        ).all()
+        return jsonify({
+            'success': True,
+            'created': count,
+            'items': [serialize_pool_item(item) for item in items],
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @program_bp.route('/student/progress', methods=['GET'])
@@ -675,6 +835,7 @@ def move_course(current_user):
     
     data = request.json
     source_uuid = data.get('source_uuid')
+    from_list_id = data.get('from_list_id')
     to_list_id = data.get('to_list_id')  # null 表示取消分配
     channel = data.get('channel', 0)
     
@@ -697,6 +858,33 @@ def move_course(current_user):
     # 取消分配
     if to_list_id is None:
         try:
+            if _is_college_english_course_list(from_list_id):
+                # Keep the normal course assignment in sync with the manual
+                # exclusion. Otherwise the old English list assignment makes
+                # the course disappear from both the English node and the
+                # unassigned area.
+                assignment = CourseListAssignment.query.filter_by(
+                    user_id=current_user.id,
+                    source_type='course',
+                    source_uuid=source_uuid,
+                ).first()
+                if assignment:
+                    assignment.course_list_id = None
+                exclusion = CourseListAssignment.query.filter_by(
+                    user_id=current_user.id,
+                    source_type='college_english_excluded',
+                    source_uuid=source_uuid
+                ).first()
+                if not exclusion:
+                    db.session.add(CourseListAssignment(
+                        user_id=current_user.id,
+                        course_list_id=None,
+                        source_type='college_english_excluded',
+                        source_uuid=source_uuid
+                    ))
+                db.session.commit()
+                return jsonify({'success': True, 'message': '已从大学英语模块取消分配'})
+
             assignment = CourseListAssignment.query.filter_by(
                 user_id=current_user.id,
                 source_type='course',
@@ -770,6 +958,7 @@ def can_move_course(current_user):
     
     data = request.json
     source_uuid = data.get('source_uuid')
+    from_list_id = data.get('from_list_id')
     channel = data.get('channel', 0)
     
     if not source_uuid:
@@ -837,6 +1026,16 @@ def can_move_course(current_user):
     available_lists.sort(key=lambda x: x['match_level'])
     
     # 检查是否可以取消分配
+    # 如果调用方传入当前所在课程列表，则以该列表作为来源判断。
+    # 大学英语模块是规则自动计算出来的课程列表，通常没有普通分配记录，
+    # 取消分配时会写入 college_english_excluded 记录来阻止再次自动归入。
+    if _is_college_english_course_list(from_list_id):
+        return jsonify({
+            'success': True,
+            'target_lists': available_lists,
+            'can_unassign': True
+        })
+
     # 只要课程存在（本通道的课程），就可以取消分配
     # 如果没有分配记录，会自动创建一条 course_list_id=None 的记录
     current_assignment = CourseListAssignment.query.filter_by(
@@ -864,7 +1063,6 @@ def can_move_course(current_user):
 
 
 def _get_course_lists_with_path(node, category_name, parent_path):
-    """递归获取课程列表及其完整路径"""
     results = []
     current_path = f"{category_name} > {parent_path} > {node.name}" if parent_path else f"{category_name} > {node.name}"
     
@@ -883,3 +1081,15 @@ def _get_course_lists_with_path(node, category_name, parent_path):
         results.extend(_get_course_lists_with_path(child, category_name, current_path))
     
     return results
+
+
+def _is_college_english_course_list(course_list_id) -> bool:
+    try:
+        parsed_id = int(course_list_id)
+    except (TypeError, ValueError):
+        return str(course_list_id or '').startswith('college-english-')
+
+    course_list = CourseList.query.get(parsed_id)
+    if not course_list or not course_list.node or not course_list.node.main_category:
+        return False
+    return is_college_english_node(course_list.node.main_category.name, course_list.node.name)

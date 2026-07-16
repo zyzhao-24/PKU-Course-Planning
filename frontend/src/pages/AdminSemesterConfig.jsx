@@ -100,6 +100,10 @@ function AdminSemesterConfig() {
     }
   };
 
+  const handleAcademicYearChange = (event) => {
+    setAcademicYear(event.target.value.replace(/[^\d-]/g, '').slice(0, 5));
+  };
+
   const handleDeleteSemester = async (semesterName) => {
     if (!confirm(`确定要删除学期 ${semesterName} 吗？这将同时删除该学期下的所有课程！`)) {
       return;
@@ -183,7 +187,9 @@ function AdminSemesterConfig() {
               <input
                 type="text"
                 value={academicYear}
-                onChange={(e) => setAcademicYear(e.target.value)}
+                onChange={handleAcademicYearChange}
+                inputMode="numeric"
+                maxLength={5}
                 placeholder="如: 25-26"
                 style={{ width: '100%', padding: '8px' }}
               />

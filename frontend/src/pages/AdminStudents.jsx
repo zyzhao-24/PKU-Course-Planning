@@ -12,6 +12,7 @@ function AdminStudents() {
   const { user, checkAuthStatus } = useAuth();
   const [currentUser, setCurrentUser] = useState(user);
   const [programs, setPrograms] = useState([]);
+  const [englishOptions, setEnglishOptions] = useState({ levels: [] });
   const [appSettings, setAppSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [programSaving, setProgramSaving] = useState(false);
@@ -25,13 +26,15 @@ function AdminStudents() {
   const fetchSettings = async () => {
     setLoading(true);
     try {
-      const [meRes, programsRes] = await Promise.all([
+      const [meRes, programsRes, englishRes] = await Promise.all([
         axios.get('/api/auth/me'),
-        axios.get('/api/student/program-options')
+        axios.get('/api/student/program-options'),
+        axios.get('/api/college-english/options')
       ]);
 
       setCurrentUser(meRes.data.user);
       setPrograms(programsRes.data.programs || []);
+      setEnglishOptions({ levels: englishRes.data.levels || [] });
 
       if (window.electronAPI?.getAppSettings) {
         const settings = await window.electronAPI.getAppSettings();
@@ -59,13 +62,22 @@ function AdminStudents() {
     return program ? program.name : '未选择';
   };
 
-  const saveProgramSettings = async (nextMajorProgramId, nextMinorProgramId) => {
+  const getEnglishLevel = (levelValue) => {
+    return englishOptions.levels.find(level => level.value === levelValue);
+  };
+
+  const saveProgramSettings = async (
+    nextMajorProgramId,
+    nextMinorProgramId,
+    nextEnglishLevel = currentUser?.english_level || null
+  ) => {
     setProgramSaving(true);
     setStatus('');
     try {
       const res = await axios.put('/api/student/program-settings', {
         major_program_id: nextMajorProgramId || null,
-        minor_program_id: nextMinorProgramId || null
+        minor_program_id: nextMinorProgramId || null,
+        english_level: nextEnglishLevel || null
       });
       setCurrentUser(res.data.user);
       await checkAuthStatus();
@@ -75,6 +87,14 @@ function AdminStudents() {
     } finally {
       setProgramSaving(false);
     }
+  };
+
+  const saveEnglishLevel = async (nextEnglishLevel) => {
+    await saveProgramSettings(
+      currentUser?.major_program_id || null,
+      currentUser?.minor_program_id || null,
+      nextEnglishLevel || null
+    );
   };
 
   const saveCloseAction = async (closeAction) => {
@@ -134,6 +154,27 @@ function AdminStudents() {
             </select>
             <div style={{ fontSize: '13px', color: '#666', marginTop: '8px' }}>
               当前: {getProgramName(currentUser?.minor_program_id)}
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>大学英语分级</label>
+            <select
+              value={currentUser?.english_level || ''}
+              onChange={e => saveEnglishLevel(e.target.value || null)}
+              disabled={programSaving}
+            >
+              <option value="">未设置</option>
+              {englishOptions.levels.map(level => (
+                <option key={level.value} value={level.value}>
+                  {level.label} - {level.summary}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: '13px', color: '#666', marginTop: '8px', lineHeight: 1.5 }}>
+              {currentUser?.english_level
+                ? `当前: ${getEnglishLevel(currentUser.english_level)?.label || currentUser.english_level}，${getEnglishLevel(currentUser.english_level)?.summary || ''}`
+                : '未设置时，培养方案进度中的大学英语节点会显示为未配置'}
             </div>
           </div>
         </div>

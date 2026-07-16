@@ -257,13 +257,12 @@ const handleMainWindowClose = async (event) => {
   try {
     result = await dialog.showMessageBox(mainWindow, {
       type: 'question',
-      buttons: ['是，退出', '否，最小化到托盘'],
+      buttons: ['退出', '最小化到托盘'],
       defaultId: 1,
       cancelId: 1,
       noLink: true,
       title: '退出选课规划系统',
       message: '是否退出选课规划系统？',
-      detail: '选择“是，退出”将关闭后端 Python 服务；选择“否，最小化到托盘”会让应用继续在后台运行。',
       checkboxLabel: '不再询问，记住我的选择',
       checkboxChecked: false,
     });

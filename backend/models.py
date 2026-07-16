@@ -18,6 +18,7 @@ class User(db.Model):
     # 培养方案关联 - 主修和辅双
     major_program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=True)
     minor_program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=True)
+    english_level = db.Column(db.String(20), nullable=True)
     
     major_program = db.relationship('Program', foreign_keys=[major_program_id], backref='major_students')
     minor_program = db.relationship('Program', foreign_keys=[minor_program_id], backref='minor_students')
@@ -214,6 +215,25 @@ class ProgramMutualExclusionItem(db.Model):
     course_id = db.Column(db.String(20), nullable=False, index=True)
     order_index = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class CollegeEnglishCoursePool(db.Model):
+    """Global college English course pool used by user-level placement rules."""
+    __tablename__ = 'college_english_course_pool'
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.String(20), nullable=False, index=True)
+    course_name = db.Column(db.String(200), nullable=False, index=True)
+    module = db.Column(db.String(30), nullable=False, index=True)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    notes = db.Column(db.String(500), nullable=True)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('course_id', 'module', name='uq_college_english_course_module'),
+    )
 
 
 

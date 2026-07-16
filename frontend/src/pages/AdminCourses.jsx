@@ -235,6 +235,301 @@ function CourseForm({ course, onSave, onCancel, semester }) {
   );
 }
 
+function CollegeEnglishPoolManager({ selectedSemester }) {
+  const [items, setItems] = useState([]);
+  const [modules, setModules] = useState([]);
+  const [moduleFilter, setModuleFilter] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState({
+    course_id: '',
+    course_name: '',
+    module: 'C',
+    active: true,
+    notes: '',
+    order_index: 0
+  });
+  const [courseSearch, setCourseSearch] = useState('');
+  const [courseSearchResults, setCourseSearchResults] = useState([]);
+
+  useEffect(() => {
+    fetchPool();
+  }, [moduleFilter]);
+
+  const fetchPool = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/college-english/pool', {
+        params: {
+          module: moduleFilter || undefined,
+          keyword: keyword || undefined,
+          include_inactive: true
+        }
+      });
+      setItems(res.data.items || []);
+      setModules(res.data.modules || []);
+    } catch (err) {
+      setStatus('大学英语课程池加载失败: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setFormData({
+      course_id: '',
+      course_name: '',
+      module: modules[0]?.value || 'C',
+      active: true,
+      notes: '',
+      order_index: 0
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setStatus('');
+    try {
+      if (editingId) {
+        await axios.put(`/api/college-english/pool/${editingId}`, formData);
+        setStatus('大学英语课程池条目已更新');
+      } else {
+        await axios.post('/api/college-english/pool', formData);
+        setStatus('大学英语课程池条目已新增');
+      }
+      resetForm();
+      fetchPool();
+    } catch (err) {
+      setStatus('保存失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setFormData({
+      course_id: item.course_id,
+      course_name: item.course_name,
+      module: item.module,
+      active: item.active,
+      notes: item.notes || '',
+      order_index: item.order_index || 0
+    });
+  };
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`确定删除 ${item.course_name} 吗？`)) return;
+    try {
+      await axios.delete(`/api/college-english/pool/${item.id}`);
+      setStatus('已删除大学英语课程池条目');
+      fetchPool();
+    } catch (err) {
+      setStatus('删除失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const toggleActive = async (item) => {
+    try {
+      await axios.put(`/api/college-english/pool/${item.id}`, { active: !item.active });
+      fetchPool();
+    } catch (err) {
+      setStatus('状态更新失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const resetDefaults = async () => {
+    if (!window.confirm('确定恢复默认大学英语课程池吗？当前课程池会被替换。')) return;
+    try {
+      const res = await axios.post('/api/college-english/pool/reset-defaults');
+      setItems(res.data.items || []);
+      setStatus(`已恢复默认课程池，共 ${res.data.created || 0} 条`);
+      resetForm();
+    } catch (err) {
+      setStatus('恢复默认失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const searchCourses = async () => {
+    if (!courseSearch.trim()) {
+      setCourseSearchResults([]);
+      return;
+    }
+    try {
+      const res = await axios.get('/api/courses', {
+        params: {
+          semester: selectedSemester,
+          per_page: 10,
+          ...(courseSearch.trim().match(/^[A-Za-z0-9]+$/)
+            ? { course_id: courseSearch.trim() }
+            : { course_name: courseSearch.trim() })
+        }
+      });
+      setCourseSearchResults(res.data.courses || []);
+    } catch (err) {
+      setStatus('课程搜索失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const moduleName = (moduleValue) => modules.find(m => m.value === moduleValue)?.label || moduleValue;
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0 }}>大学英语课程池</h3>
+        <button className="btn btn-secondary btn-sm" onClick={resetDefaults}>恢复默认</button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginTop: '18px' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>课程号</label>
+            <input
+              value={formData.course_id}
+              onChange={e => setFormData({ ...formData, course_id: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>课程名</label>
+            <input
+              value={formData.course_name}
+              onChange={e => setFormData({ ...formData, course_name: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>模块</label>
+            <select value={formData.module} onChange={e => setFormData({ ...formData, module: e.target.value })}>
+              {modules.map(module => (
+                <option key={module.value} value={module.value}>{module.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>排序</label>
+            <input
+              type="number"
+              value={formData.order_index}
+              onChange={e => setFormData({ ...formData, order_index: parseInt(e.target.value) || 0 })}
+            />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+            <input
+              type="checkbox"
+              checked={formData.active}
+              onChange={e => setFormData({ ...formData, active: e.target.checked })}
+            />
+            启用
+          </label>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>备注</label>
+            <input
+              value={formData.notes}
+              onChange={e => setFormData({ ...formData, notes: e.target.value })}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button className="btn btn-primary btn-sm" type="submit">{editingId ? '保存修改' : '新增课程'}</button>
+            {editingId && <button className="btn btn-secondary btn-sm" type="button" onClick={resetForm}>取消编辑</button>}
+          </div>
+
+          <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '4px' }}>
+            <label style={{ fontSize: '12px', display: 'block', marginBottom: '6px' }}>从当前课程库搜索</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                value={courseSearch}
+                onChange={e => setCourseSearch(e.target.value)}
+                placeholder="课程号或课程名"
+              />
+              <button type="button" className="btn btn-secondary btn-sm" onClick={searchCourses}>搜索</button>
+            </div>
+            {courseSearchResults.length > 0 && (
+              <div style={{ marginTop: '8px', maxHeight: '180px', overflow: 'auto', border: '1px solid #eee', borderRadius: '6px' }}>
+                {courseSearchResults.map(course => (
+                  <button
+                    key={course.uuid}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, course_id: course.course_id, course_name: course.course_name })}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      border: 'none',
+                      background: 'white',
+                      padding: '8px 10px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {course.course_id} {course.course_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </form>
+
+        <div>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
+            <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)} style={{ maxWidth: '220px' }}>
+              <option value="">全部模块</option>
+              {modules.map(module => (
+                <option key={module.value} value={module.value}>{module.label}</option>
+              ))}
+            </select>
+            <input
+              value={keyword}
+              onChange={e => setKeyword(e.target.value)}
+              placeholder="搜索课程号或课程名"
+              style={{ maxWidth: '240px' }}
+            />
+            <button className="btn btn-secondary btn-sm" onClick={fetchPool}>筛选</button>
+          </div>
+
+          {loading ? <div>加载中...</div> : (
+            <div className="table-container" style={{ maxHeight: '360px', overflow: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>模块</th>
+                    <th>课程号</th>
+                    <th>课程名</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(item => (
+                    <tr key={item.id} style={{ opacity: item.active ? 1 : 0.55 }}>
+                      <td>{moduleName(item.module)}</td>
+                      <td>{item.course_id}</td>
+                      <td>{item.course_name}</td>
+                      <td>{item.active ? '启用' : '停用'}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          <button className="btn btn-primary btn-sm" onClick={() => handleEdit(item)}>编辑</button>
+                          <button className="btn btn-secondary btn-sm" onClick={() => toggleActive(item)}>
+                            {item.active ? '停用' : '启用'}
+                          </button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)}>删除</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {items.length === 0 && <div style={{ padding: '20px', color: '#666', textAlign: 'center' }}>暂无课程池条目</div>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {status && <div style={{ marginTop: '12px', fontSize: '13px', color: status.includes('失败') ? '#dc3545' : '#2f855a' }}>{status}</div>}
+    </div>
+  );
+}
+
 function AdminCourses() {
   const { selectedSemester } = useSemester();
   const [courses, setCourses] = useState([]);
@@ -492,6 +787,8 @@ function AdminCourses() {
           <button className="btn btn-primary" onClick={handleCreate}>+ 创建课程</button>
         </div>
       </div>
+
+      <CollegeEnglishPoolManager selectedSemester={selectedSemester} />
 
       <div className="card">
         <h3>数据导入</h3>

@@ -126,7 +126,8 @@ def serialize_user(user):
         'name': user.name,
         'role': user.role,
         'major_program_id': user.major_program_id,
-        'minor_program_id': user.minor_program_id
+        'minor_program_id': user.minor_program_id,
+        'english_level': user.english_level,
     }
 
 
@@ -235,7 +236,8 @@ def login():
                 'name': user.name,
                 'role': user.role,
                 'major_program_id': user.major_program_id,
-                'minor_program_id': user.minor_program_id
+                'minor_program_id': user.minor_program_id,
+                'english_level': user.english_level,
             }
         })
     
@@ -292,7 +294,8 @@ def get_current_user_info(current_user):
             'name': current_user.name,
             'role': current_user.role,
             'major_program_id': current_user.major_program_id,
-            'minor_program_id': current_user.minor_program_id
+            'minor_program_id': current_user.minor_program_id,
+            'english_level': current_user.english_level,
         }
     })
 
@@ -582,7 +585,8 @@ def student_login_password():
             'name': user.name,
             'role': user.role,
             'major_program_id': user.major_program_id,
-            'minor_program_id': user.minor_program_id
+            'minor_program_id': user.minor_program_id,
+            'english_level': user.english_level,
         }
     })
 
@@ -642,7 +646,8 @@ def student_login_qr_poll():
                 'name': user.name,
                 'role': user.role,
                 'major_program_id': user.major_program_id,
-                'minor_program_id': user.minor_program_id
+                'minor_program_id': user.minor_program_id,
+                'english_level': user.english_level,
             }
         })
     
@@ -700,7 +705,8 @@ def check_auth_status():
             'name': user.name,
             'role': user.role,
             'major_program_id': user.major_program_id,
-            'minor_program_id': user.minor_program_id
+            'minor_program_id': user.minor_program_id,
+            'english_level': user.english_level,
         }
     })
 
@@ -2256,6 +2262,7 @@ def admin_get_students(current_user):
             'major_program_name': program_map.get(s.major_program_id),
             'minor_program_id': s.minor_program_id,
             'minor_program_name': program_map.get(s.minor_program_id),
+            'english_level': s.english_level,
             'last_login': s.last_login.isoformat() if s.last_login else None,
             'created_at': s.created_at.isoformat() if s.created_at else None
         } for s in students]

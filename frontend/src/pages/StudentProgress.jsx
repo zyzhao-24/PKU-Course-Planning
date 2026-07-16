@@ -55,7 +55,6 @@ function StudentProgress() {
 
   useEffect(() => {
     fetchProgress();
-    fetchAllCourses();
     fetchSelectedCourses();
   }, []);
 
@@ -175,16 +174,6 @@ function StudentProgress() {
     }
   };
 
-  const fetchAllCourses = async () => {
-    try {
-      // 获取所有课程（不分页）
-      const res = await axios.get('/api/courses', { params: { per_page: 0 } });
-      setAllCourses(res.data.courses || []);
-    } catch (err) {
-      console.error('获取课程列表失败', err);
-    }
-  };
-
   const recalculateProgress = async () => {
     try {
       setLoading(true);
@@ -299,6 +288,7 @@ function StudentProgress() {
       // 获取可以移动到的目标列表
       const res = await axios.post('/api/student/courses/can-move', {
         source_uuid: course.source_uuid,
+        from_list_id: fromListId,
         channel: activeTab === 'major' ? 0 : 1
       });
       
@@ -354,6 +344,7 @@ function StudentProgress() {
       
       const res = await axios.post('/api/student/courses/move', {
         source_uuid: moveModal.course.source_uuid,
+        from_list_id: moveModal.fromListId,
         to_list_id: toListId, // null表示取消分配
         channel: activeTab === 'major' ? 0 : 1
       });
