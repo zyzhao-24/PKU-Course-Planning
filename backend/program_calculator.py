@@ -11,7 +11,8 @@
 from models import (
     Program, MainCategory, Node, CourseList, CourseListAssignment,
     Transcript, DissertationTranscript, User,
-    SelectedCourse, Course, CourseNameMapping, CollegeEnglishCoursePool
+    SelectedCourse, Course, CourseNameMapping, CollegeEnglishCoursePool,
+    LaborEducationCoursePool
 )
 from database import db
 from typing import List, Dict, Any, Optional, Set, Tuple
@@ -25,6 +26,11 @@ from college_english import (
     requirement_summary,
     normalize_name,
 )
+from physical_education import is_physical_education_node
+from labor_education import is_labor_education_node
+
+
+PHYSICAL_EDUCATION_EXCLUDED_SOURCE_TYPE = 'pe_excluded'
 
 
 def _is_college_english_module_list(course_list: Optional[CourseList]) -> bool:
@@ -107,6 +113,17 @@ class CourseInfoResolver:
             mapping = CourseNameMapping.query.filter_by(course_id=course_id).first()
             if mapping:
                 credits = mapping.credits
+
+        # 成绩单中的历史课程 UUID 往往不在当前学期课程库中，但课程号仍然
+        # 可以对应到课程库中的其他开课记录。课程类型必须从这里兜底获取，
+        # 否则历史体育课会因 course_type=None 无法进入体育课节点。
+        course_metadata = course
+        type_metadata = course
+        if (not type_metadata or not type_metadata.course_type) and course_id:
+            type_metadata = Course.query.filter(
+                Course.course_id == course_id,
+                Course.course_type.isnot(None),
+            ).first()
         
         # 获取成绩信息
         score = None
@@ -116,9 +133,9 @@ class CourseInfoResolver:
             has_grade = True
         
         # 获取用于匹配的字段
-        dept_code = course.department_code if course else (transcript.course_id[:3] if transcript and len(transcript.course_id) >= 3 else None)
-        course_type = course.course_type if course else None
-        teachers = course.teachers if course else None
+        dept_code = course_metadata.department_code if course_metadata else (transcript.course_id[:3] if transcript and len(transcript.course_id) >= 3 else None)
+        course_type = type_metadata.course_type if type_metadata else None
+        teachers = course_metadata.teachers if course_metadata else None
         
         # 从 SelectedCourse 补充信息
         if selected and selected.course:
@@ -817,9 +834,11 @@ class CourseListResultBuilder:
     整合不可重复列表（从数据库查询）和可重复列表（当场计算）的结果
     """
     
-    def __init__(self, user_id: int, channel: int):
+    def __init__(self, user_id: int, channel: int,
+                 excluded_source_uuids: Optional[Set[str]] = None):
         self.user_id = user_id
         self.channel = channel
+        self.excluded_source_uuids = excluded_source_uuids or set()
     
     def build(self, course_list: CourseList, 
               non_repeatable_assignments: Dict[str, Optional[int]],
@@ -865,6 +884,8 @@ class CourseListResultBuilder:
         
         courses = []
         for a in assignments:
+            if a.source_uuid in self.excluded_source_uuids:
+                continue
             info = CourseInfoResolver.resolve(self.user_id, a.source_uuid, self.channel)
             if info:
                 courses.append(info)
@@ -914,11 +935,14 @@ class NodeCalculator:
     """
     
     def __init__(self, user_id: int, channel: int, program_id: int,
-                 special_node_results: Optional[Dict[int, Dict]] = None):
+                 special_node_results: Optional[Dict[int, Dict]] = None,
+                 excluded_source_uuids: Optional[Set[str]] = None):
         self.user_id = user_id
         self.channel = channel
         self.program_id = program_id
-        self.result_builder = CourseListResultBuilder(user_id, channel)
+        self.result_builder = CourseListResultBuilder(
+            user_id, channel, excluded_source_uuids
+        )
         self.special_node_results = special_node_results or {}
     
     def calculate(self, node: Node, 
@@ -1220,6 +1244,11 @@ class CourseMoveManager:
                 source_type='college_english_excluded',
                 source_uuid=source_uuid,
             ).delete()
+            CourseListAssignment.query.filter_by(
+                user_id=self.user_id,
+                source_type=PHYSICAL_EDUCATION_EXCLUDED_SOURCE_TYPE,
+                source_uuid=source_uuid,
+            ).delete()
             
             db.session.commit()
             return True, "移动成功"
@@ -1264,26 +1293,50 @@ class ProgramProgressCalculator:
         
         # 1. 收集所有课程 uuid
         all_uuids = self._collect_course_uuids(channel)
-        # On recalculation, assign all courses first (including English), then
-        # rebuild the English view from the persisted assignments.
+        physical_results, physical_education_uuids = self._build_physical_education_results(
+            program,
+            channel,
+            all_uuids,
+            persist_lists=auto_distribute,
+        )
+        labor_results, dynamic_labor_result = self._build_labor_education_results(
+            program, channel, all_uuids
+        )
+        physical_matched_uuids = set()
+        for result in physical_results.values():
+            physical_matched_uuids.update(
+                result.get('physical_education_requirement', {}).get(
+                    'matched_source_uuids', []
+                )
+            )
+
+        # On recalculation, assign ordinary courses first, then rebuild the
+        # special requirement views. Physical education courses are excluded
+        # from ordinary assignment because their type alone determines their
+        # requirement membership.
         if auto_distribute:
+            self._migrate_physical_education_assignments(physical_results)
             self._build_college_english_results(program, channel, all_uuids)
             distributor = NonRepeatableDistributor(self.user_id, channel, program_id)
-            distributor.distribute(all_uuids)
-            special_node_results, college_english_uuids = self._build_college_english_results(
+            distributor.distribute(all_uuids - physical_matched_uuids)
+            english_results, college_english_uuids = self._build_college_english_results(
                 program,
                 channel,
                 all_uuids,
             )
-            distributable_uuids = all_uuids - college_english_uuids
+            special_node_results = {**english_results, **physical_results, **labor_results}
+            consumed_uuids = college_english_uuids | physical_education_uuids
+            distributable_uuids = all_uuids - consumed_uuids
             non_repeatable_assignments = self._load_existing_assignments(channel, distributable_uuids)
         else:
-            special_node_results, college_english_uuids = self._build_college_english_results(
+            english_results, college_english_uuids = self._build_college_english_results(
                 program,
                 channel,
                 all_uuids,
             )
-            distributable_uuids = all_uuids - college_english_uuids
+            special_node_results = {**english_results, **physical_results, **labor_results}
+            consumed_uuids = college_english_uuids | physical_education_uuids
+            distributable_uuids = all_uuids - consumed_uuids
             # Read the current assignments from the database.
             non_repeatable_assignments = self._load_existing_assignments(channel, distributable_uuids)
         
@@ -1292,7 +1345,13 @@ class ProgramProgressCalculator:
         repeatable_results = repeatable_calc.calculate(distributable_uuids)
         
         # 4. 计算每个主类别
-        node_calc = NodeCalculator(self.user_id, channel, program_id, special_node_results)
+        node_calc = NodeCalculator(
+            self.user_id,
+            channel,
+            program_id,
+            special_node_results,
+            excluded_source_uuids=consumed_uuids,
+        )
         
         category_results = []
         for category in program.categories:
@@ -1303,6 +1362,12 @@ class ProgramProgressCalculator:
             
             node_results = [node_calc.calculate(node, non_repeatable_assignments, repeatable_results) 
                           for node in root_nodes]
+
+            if dynamic_labor_result and category.id == dynamic_labor_result['_category_id']:
+                node_results.append({
+                    key: value for key, value in dynamic_labor_result.items()
+                    if key != '_category_id'
+                })
             
             category_results.append({
                 'id': category.id,
@@ -1351,6 +1416,349 @@ class ProgramProgressCalculator:
                 )
 
         return results, matched_uuids
+
+    def _build_labor_education_results(
+        self,
+        program: Program,
+        channel: int,
+        all_uuids: Set[str],
+    ) -> Tuple[Dict[int, Dict], Optional[Dict]]:
+        """Build the labor education view without consuming ordinary courses."""
+        results: Dict[int, Dict] = {}
+        if int(program.year or 0) < 2021:
+            return results, None
+
+        pool = LaborEducationCoursePool.query.order_by(
+            LaborEducationCoursePool.course_id
+        ).all()
+        pool_by_course_id = {item.course_id: item for item in pool}
+        matched_courses = []
+        for source_uuid in sorted(all_uuids):
+            info = CourseInfoResolver.resolve(self.user_id, source_uuid, channel)
+            if not info:
+                continue
+            pool_item = pool_by_course_id.get(info.get('course_id'))
+            if not pool_item:
+                continue
+            matched_courses.append({
+                **info,
+                'labor_hours': float(pool_item.labor_hours or 0),
+                'labor_course_system': pool_item.course_system,
+            })
+
+        matched_courses.sort(key=lambda course: (
+            0 if course.get('has_grade') else 1,
+            course.get('course_name') or '',
+            course.get('source_uuid') or '',
+        ))
+        total_hours = sum(float(course.get('labor_hours') or 0) for course in matched_courses)
+        total_credits = sum(float(course.get('credits') or 0) for course in matched_courses)
+        pool_course_ids = list(pool_by_course_id.keys())
+
+        labor_nodes = []
+        for category in program.categories:
+            for node in category.nodes:
+                if is_labor_education_node(node.name):
+                    labor_nodes.append((category, node))
+
+        def make_result(node_id, node_name, required_hours, category_id=None):
+            required_hours = max(32.0, float(required_hours or 0))
+            qualified = total_hours >= required_hours - 0.01
+            virtual_id = f'labor-education-list-{program.id}'
+            result = {
+                'id': node_id,
+                'type': 'node',
+                'name': node_name,
+                # Labor courses are displayed here but are counted in their
+                # original program lists, so they do not inflate totals.
+                'credits': 0,
+                'course_count': 0,
+                'qualified': qualified,
+                'qualification_rules': [],
+                'is_labor_education': True,
+                'labor_education_requirement': {
+                    'required_hours': required_hours,
+                    'hours': total_hours,
+                    'course_count': len(matched_courses),
+                    'course_credits': total_credits,
+                    'qualified': qualified,
+                    'matched_source_uuids': [course['source_uuid'] for course in matched_courses],
+                },
+                'children': [{
+                    'id': virtual_id,
+                    'type': 'course_list',
+                    'name': '劳动教育课程（可同时计入原课程体系）',
+                    'credits': total_credits,
+                    'course_count': len(matched_courses),
+                    'hours': total_hours,
+                    'required_hours': required_hours,
+                    'qualified': qualified,
+                    'is_repeatable': False,
+                    'is_dissertation': False,
+                    'is_labor_education_virtual': True,
+                    'filters': {'course_id': pool_course_ids},
+                    'max_courses': None,
+                    'qualification_rules': [],
+                    'courses': matched_courses,
+                }],
+            }
+            if category_id is not None:
+                result['_category_id'] = category_id
+            return result
+
+        for category, node in labor_nodes:
+            required = node.requirement_min
+            if required is None:
+                required = node.requirement_max
+            results[node.id] = make_result(node.id, node.name, required)
+
+        if labor_nodes:
+            return results, None
+
+        target_category = next(
+            (category for category in program.categories if category.name == '公共基础课程'),
+            next(iter(program.categories), None),
+        )
+        if not target_category:
+            return results, None
+        return results, make_result(
+            f'labor-education-{program.id}',
+            '劳动教育课',
+            32,
+            target_category.id,
+        )
+
+    def _build_physical_education_results(
+        self,
+        program: Program,
+        channel: int,
+        all_uuids: Set[str],
+        persist_lists: bool = False,
+    ) -> Tuple[Dict[int, Dict], Set[str]]:
+        """Build the physical education node from course type and plan credits."""
+        results: Dict[int, Dict] = {}
+        selected_uuids: Set[str] = set()
+
+        for category in program.categories:
+            for node in category.nodes:
+                if not is_physical_education_node(node.name):
+                    continue
+
+                required_credits = node.requirement_min
+                if required_credits is None:
+                    required_credits = node.requirement_max
+                if required_credits is None:
+                    for rule in node.qualification_rules or []:
+                        if rule.get('min_credits') is not None:
+                            required_credits = rule['min_credits']
+                            break
+                if required_credits is None:
+                    required_credits = 4.0
+                required_credits = float(required_credits)
+
+                physical_course_list = None
+                if persist_lists:
+                    physical_course_list = self._ensure_physical_education_course_list(
+                        node, required_credits
+                    )
+                elif node.course_lists:
+                    physical_course_list = next(
+                        (
+                            course_list for course_list in node.course_lists
+                            if not course_list.is_dissertation and not course_list.is_repeatable
+                        ),
+                        None,
+                    )
+
+                matched_courses = []
+                assignments = {}
+                excluded_source_uuids = set()
+                if not persist_lists and all_uuids:
+                    assignment_rows = CourseListAssignment.query.filter(
+                        CourseListAssignment.user_id == self.user_id,
+                        CourseListAssignment.source_uuid.in_(list(all_uuids)),
+                    ).all()
+                    for assignment in assignment_rows:
+                        if assignment.source_type == PHYSICAL_EDUCATION_EXCLUDED_SOURCE_TYPE:
+                            excluded_source_uuids.add(assignment.source_uuid)
+                        elif assignment.source_type == 'course':
+                            assignments[assignment.source_uuid] = assignment
+
+                for source_uuid in sorted(all_uuids):
+                    info = CourseInfoResolver.resolve(self.user_id, source_uuid, channel)
+                    if not info or info.get('course_type') != '体育':
+                        continue
+                    if source_uuid in excluded_source_uuids:
+                        continue
+                    assignment = assignments.get(source_uuid)
+                    assigned_to_physical = bool(
+                        assignment and physical_course_list
+                        and assignment.course_list_id == physical_course_list.id
+                    )
+                    if assignment and not assigned_to_physical:
+                        continue
+                    matched_courses.append({
+                        **info,
+                        'assigned_physical_education': assigned_to_physical,
+                    })
+
+                matched_courses.sort(key=lambda course: (
+                    0 if course.get('assigned_physical_education') else 1,
+                    0 if course.get('has_grade') else 1,
+                    course.get('course_name') or '',
+                    course.get('source_uuid') or '',
+                ))
+
+                selected_courses = []
+                selected_credits = 0.0
+                for course in matched_courses:
+                    if selected_credits >= required_credits - 0.01:
+                        break
+                    selected_courses.append(course)
+                    selected_uuids.add(course['source_uuid'])
+                    selected_credits += float(course.get('credits') or 0)
+
+                qualified = selected_credits >= required_credits - 0.01
+                virtual_list_id = (
+                    physical_course_list.id
+                    if physical_course_list
+                    else f'physical-education-{node.id}'
+                )
+                results[node.id] = {
+                    'id': node.id,
+                    'type': 'node',
+                    'name': node.name,
+                    'credits': selected_credits,
+                    'course_count': len(selected_courses),
+                    'qualified': qualified,
+                    'qualification_rules': node.qualification_rules or [],
+                    'is_physical_education': True,
+                    'physical_education_requirement': {
+                        'required_credits': required_credits,
+                        'course_list_id': physical_course_list.id
+                        if physical_course_list else None,
+                        'qualified': qualified,
+                        'matched_source_uuids': [
+                            course['source_uuid'] for course in matched_courses
+                        ],
+                        'selected_source_uuids': [
+                            course['source_uuid'] for course in selected_courses
+                        ],
+                    },
+                    'children': [{
+                        'id': virtual_list_id,
+                        'type': 'course_list',
+                        'name': '体育课程（按课程类型统计）',
+                        'credits': selected_credits,
+                        'course_count': len(selected_courses),
+                        'qualified': qualified,
+                        'is_repeatable': False,
+                        'is_dissertation': False,
+                        'is_physical_education_virtual': True,
+                        'filters': {'course_type': ['体育']},
+                        'max_courses': None,
+                        'qualification_rules': [{
+                            'min_credits': required_credits,
+                            'min_courses': None,
+                            'filters': {'course_type': ['体育']},
+                        }],
+                        'courses': selected_courses,
+                    }],
+                }
+
+        return results, selected_uuids
+
+    def _ensure_physical_education_course_list(
+        self,
+        node: Node,
+        required_credits: float,
+    ) -> CourseList:
+        """Return the canonical persisted list used by the physical node."""
+        course_list = next(
+            (
+                item for item in node.course_lists
+                if not item.is_dissertation and not item.is_repeatable
+            ),
+            None,
+        )
+        if not course_list:
+            course_list = CourseList(
+                node_id=node.id,
+                name='体育课程',
+                order_index=0,
+                raw='physical_education:auto',
+                course_category='体育',
+                requirement_type='credits',
+                requirement_min=required_credits,
+                requirement_max=required_credits,
+                filters={'course_type': ['体育']},
+                is_repeatable=False,
+                is_dissertation=False,
+                qualification_rules=[{'min_credits': required_credits}],
+            )
+            db.session.add(course_list)
+        else:
+            course_list.raw = 'physical_education:auto'
+            course_list.course_category = '体育'
+            course_list.requirement_type = 'credits'
+            course_list.requirement_min = required_credits
+            course_list.requirement_max = required_credits
+            course_list.filters = {'course_type': ['体育']}
+            course_list.qualification_rules = [{'min_credits': required_credits}]
+        db.session.flush()
+        return course_list
+
+    def _migrate_physical_education_assignments(
+        self,
+        physical_results: Dict[int, Dict],
+    ) -> None:
+        """Persist the selected physical courses into the canonical list."""
+        selected_to_list: Dict[str, int] = {}
+        matched_uuids: Set[str] = set()
+        for result in physical_results.values():
+            requirement = result.get('physical_education_requirement', {})
+            course_list_id = requirement.get('course_list_id')
+            matched = set(requirement.get('matched_source_uuids', []))
+            matched_uuids.update(matched)
+            if course_list_id:
+                for source_uuid in requirement.get('selected_source_uuids', []):
+                    selected_to_list[source_uuid] = course_list_id
+
+        if not matched_uuids:
+            return
+
+        assignments = CourseListAssignment.query.filter(
+            CourseListAssignment.user_id == self.user_id,
+            CourseListAssignment.source_type == 'course',
+            CourseListAssignment.source_uuid.in_(list(matched_uuids)),
+        ).all()
+        assignments_by_uuid = {assignment.source_uuid: assignment for assignment in assignments}
+
+        for source_uuid in matched_uuids:
+            target_list_id = selected_to_list.get(source_uuid)
+            assignment = assignments_by_uuid.get(source_uuid)
+            if target_list_id:
+                if not assignment:
+                    assignment = CourseListAssignment(
+                        user_id=self.user_id,
+                        course_list_id=target_list_id,
+                        source_type='course',
+                        source_uuid=source_uuid,
+                    )
+                    db.session.add(assignment)
+                else:
+                    assignment.course_list_id = target_list_id
+            elif assignment:
+                # Courses beyond the plan's required credits must not remain
+                # attached to an old ordinary/体育 list after migration.
+                assignment.course_list_id = None
+
+        CourseListAssignment.query.filter(
+            CourseListAssignment.user_id == self.user_id,
+            CourseListAssignment.source_type == PHYSICAL_EDUCATION_EXCLUDED_SOURCE_TYPE,
+            CourseListAssignment.source_uuid.in_(list(matched_uuids)),
+        ).delete(synchronize_session=False)
+        db.session.commit()
 
     def _load_existing_assignments(self, channel: int, all_uuids: Optional[Set[str]] = None) -> Dict[str, Optional[int]]:
         """从数据库加载现有的分配关系"""

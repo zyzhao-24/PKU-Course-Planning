@@ -16,3 +16,9 @@ def init_db(app):
             seed_default_pool(reset=False)
         except Exception as exc:
             app.logger.warning("Failed to seed college English pool: %s", exc)
+        try:
+            from labor_education import seed_default_pool
+
+            seed_default_pool(reset=False)
+        except Exception as exc:
+            app.logger.warning("Failed to seed labor education pool: %s", exc)

@@ -15,7 +15,7 @@ from models import (
     db, Program, MainCategory, Node, CourseList, CourseListAssignment, User,
     Transcript, ExchangeTranscript, DissertationTranscript,
     ProgramCourseOption, ProgramMutualExclusionGroup, ProgramRequirementRule,
-    CollegeEnglishCoursePool
+    CollegeEnglishCoursePool, LaborEducationCoursePool
 )
 from program_calculator import ProgramProgressCalculator
 from auth_utils import login_required, admin_required, student_required, get_current_user
@@ -29,6 +29,14 @@ from college_english import (
     validate_english_level,
     validate_english_module,
 )
+from physical_education import is_physical_education_node
+from labor_education import (
+    normalize_pool_item as normalize_labor_pool_item,
+    seed_default_pool as seed_labor_default_pool,
+    serialize_pool_item as serialize_labor_pool_item,
+)
+
+PHYSICAL_EDUCATION_EXCLUDED_SOURCE_TYPE = 'pe_excluded'
 
 program_bp = Blueprint('program', __name__, url_prefix='/api')
 
@@ -768,6 +776,121 @@ def reset_college_english_pool(current_user):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+# ==================== 劳动教育课程池管理 API ====================
+
+@program_bp.route('/labor-education/pool', methods=['GET'])
+@admin_required
+def get_labor_education_pool(current_user):
+    keyword = (request.args.get('keyword') or '').strip()
+    course_system = (request.args.get('course_system') or '').strip()
+    query = LaborEducationCoursePool.query
+    if course_system:
+        query = query.filter_by(course_system=course_system)
+    if keyword:
+        like = f"%{keyword}%"
+        query = query.filter(
+            (LaborEducationCoursePool.course_id.like(like)) |
+            (LaborEducationCoursePool.course_name.like(like))
+        )
+    items = query.order_by(
+        LaborEducationCoursePool.course_system,
+        LaborEducationCoursePool.course_id,
+    ).all()
+    systems = [row[0] for row in db.session.query(
+        LaborEducationCoursePool.course_system
+    ).distinct().order_by(LaborEducationCoursePool.course_system).all()]
+    return jsonify({
+        'success': True,
+        'items': [serialize_labor_pool_item(item) for item in items],
+        'course_systems': systems,
+    })
+
+
+@program_bp.route('/labor-education/pool', methods=['POST'])
+@admin_required
+def create_labor_education_pool_item(current_user):
+    try:
+        item = LaborEducationCoursePool(**normalize_labor_pool_item(request.json or {}))
+        if LaborEducationCoursePool.query.filter_by(course_id=item.course_id).first():
+            return jsonify({'success': False, 'message': 'course_id already exists'}), 400
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({'success': True, 'item': serialize_labor_pool_item(item)})
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
+@program_bp.route('/labor-education/pool/<int:item_id>', methods=['PUT'])
+@admin_required
+def update_labor_education_pool_item(item_id, current_user):
+    item = LaborEducationCoursePool.query.get(item_id)
+    if not item:
+        return jsonify({'success': False, 'message': 'Labor education pool item not found'}), 404
+    try:
+        data = request.json or {}
+        values = normalize_labor_pool_item({
+            'course_id': data.get('course_id', item.course_id),
+            'course_name': data.get('course_name', item.course_name),
+            'course_system': data.get('course_system', item.course_system),
+            'credits': data.get('credits', item.credits),
+            'labor_hours': data.get('labor_hours', item.labor_hours),
+        })
+        duplicate = LaborEducationCoursePool.query.filter(
+            LaborEducationCoursePool.course_id == values['course_id'],
+            LaborEducationCoursePool.id != item_id,
+        ).first()
+        if duplicate:
+            return jsonify({'success': False, 'message': 'course_id already exists'}), 400
+        for key, value in values.items():
+            setattr(item, key, value)
+        db.session.commit()
+        return jsonify({'success': True, 'item': serialize_labor_pool_item(item)})
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
+@program_bp.route('/labor-education/pool/<int:item_id>', methods=['DELETE'])
+@admin_required
+def delete_labor_education_pool_item(item_id, current_user):
+    item = LaborEducationCoursePool.query.get(item_id)
+    if not item:
+        return jsonify({'success': False, 'message': 'Labor education pool item not found'}), 404
+    try:
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
+@program_bp.route('/labor-education/pool/reset-defaults', methods=['POST'])
+@admin_required
+def reset_labor_education_pool(current_user):
+    try:
+        count = seed_labor_default_pool(reset=True)
+        items = LaborEducationCoursePool.query.order_by(
+            LaborEducationCoursePool.course_system,
+            LaborEducationCoursePool.course_id,
+        ).all()
+        return jsonify({
+            'success': True,
+            'created': count,
+            'items': [serialize_labor_pool_item(item) for item in items],
+        })
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
 @program_bp.route('/student/progress', methods=['GET'])
 @student_required
 def get_student_progress(current_user):
@@ -857,6 +980,40 @@ def move_course(current_user):
     
     # 取消分配
     if to_list_id is None:
+        if _is_physical_education_course_list(from_list_id):
+            try:
+                assignment = CourseListAssignment.query.filter_by(
+                    user_id=current_user.id,
+                    source_type='course',
+                    source_uuid=source_uuid,
+                ).first()
+                if assignment:
+                    assignment.course_list_id = None
+                else:
+                    db.session.add(CourseListAssignment(
+                        user_id=current_user.id,
+                        course_list_id=None,
+                        source_type='course',
+                        source_uuid=source_uuid,
+                    ))
+                exclusion = CourseListAssignment.query.filter_by(
+                    user_id=current_user.id,
+                    source_type=PHYSICAL_EDUCATION_EXCLUDED_SOURCE_TYPE,
+                    source_uuid=source_uuid,
+                ).first()
+                if not exclusion:
+                    db.session.add(CourseListAssignment(
+                        user_id=current_user.id,
+                        course_list_id=None,
+                        source_type=PHYSICAL_EDUCATION_EXCLUDED_SOURCE_TYPE,
+                        source_uuid=source_uuid,
+                    ))
+                db.session.commit()
+                return jsonify({'success': True, 'message': '已从体育课取消分配'})
+            except Exception as e:
+                db.session.rollback()
+                return jsonify({'success': False, 'message': f'取消分配失败：{str(e)}'}), 500
+
         try:
             if _is_college_english_course_list(from_list_id):
                 # Keep the normal course assignment in sync with the manual
@@ -1036,6 +1193,13 @@ def can_move_course(current_user):
             'can_unassign': True
         })
 
+    if _is_physical_education_course_list(from_list_id):
+        return jsonify({
+            'success': True,
+            'target_lists': available_lists,
+            'can_unassign': True
+        })
+
     # 只要课程存在（本通道的课程），就可以取消分配
     # 如果没有分配记录，会自动创建一条 course_list_id=None 的记录
     current_assignment = CourseListAssignment.query.filter_by(
@@ -1093,3 +1257,15 @@ def _is_college_english_course_list(course_list_id) -> bool:
     if not course_list or not course_list.node or not course_list.node.main_category:
         return False
     return is_college_english_node(course_list.node.main_category.name, course_list.node.name)
+
+
+def _is_physical_education_course_list(course_list_id) -> bool:
+    try:
+        parsed_id = int(course_list_id)
+    except (TypeError, ValueError):
+        return str(course_list_id or '').startswith('physical-education-')
+
+    course_list = CourseList.query.get(parsed_id)
+    if not course_list or not course_list.node:
+        return False
+    return is_physical_education_node(course_list.node.name)

@@ -236,6 +236,23 @@ class CollegeEnglishCoursePool(db.Model):
     )
 
 
+class LaborEducationCoursePool(db.Model):
+    """劳动教育课程目录。
+
+    目录课程保留原课程体系，同时由劳动教育规则额外累计 labor_hours。
+    """
+    __tablename__ = 'labor_education_course_pool'
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.String(20), nullable=False, unique=True, index=True)
+    course_name = db.Column(db.String(200), nullable=False, index=True)
+    course_system = db.Column(db.String(50), nullable=False, index=True)
+    credits = db.Column(db.Float, nullable=False, default=0)
+    labor_hours = db.Column(db.Float, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 
 class CourseListAssignment(db.Model):
     """

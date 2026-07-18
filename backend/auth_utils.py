@@ -671,7 +671,6 @@ def student_required(f):
 
 
 def admin_required(f):
-    return login_required(f)
     """管理员权限装饰器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):

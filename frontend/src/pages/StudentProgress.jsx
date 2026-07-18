@@ -505,7 +505,7 @@ function StudentProgress() {
                 可重复
               </span>
             )}
-            {!item.is_dissertation && !hasFilters(item.filters) && (
+            {!item.is_physical_education_virtual && !item.is_labor_education_virtual && !item.is_dissertation && !hasFilters(item.filters) && (
               <span style={{ fontSize: '10px', padding: '2px 6px', backgroundColor: '#6c757d', color: 'white', borderRadius: '3px' }}>
                 任选
               </span>
@@ -577,13 +577,16 @@ function StudentProgress() {
                 <span>{course.course_name}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ color: '#666' }}>{course.credits}学分</span>
+                  {item.is_labor_education_virtual && (
+                    <span style={{ color: '#6f42c1' }}>{course.labor_hours} 学时</span>
+                  )}
                   {course.has_grade ? (
                     <span style={{ color: '#28a745', fontSize: '12px' }}>{course.score}</span>
                   ) : (
                     <span style={{ color: '#ff9800', fontSize: '12px' }}>进行中</span>
                   )}
                   {/* 移动按钮 - 只在不可重复列表显示 */}
-                  {!item.is_repeatable && !item.is_dissertation && course.source_uuid && (
+                  {!item.is_repeatable && !item.is_labor_education_virtual && !item.is_dissertation && course.source_uuid && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -667,7 +670,9 @@ function StudentProgress() {
                     fontWeight: 'bold',
                     color: node.qualified ? '#28a745' : '#ff9800'
                   }}>
-                    {node.credits.toFixed(1)} 学分 / {node.course_count} 门
+                    {node.is_labor_education
+                      ? `${node.labor_education_requirement?.hours || 0} / ${node.labor_education_requirement?.required_hours || 32} 学时`
+                      : `${node.credits.toFixed(1)} 学分 / ${node.course_count} 门`}
                   </div>
                   <div style={{ fontSize: '11px', color: '#666' }}>
                     {node.qualified ? '✓ 合格' : '未完成'}
