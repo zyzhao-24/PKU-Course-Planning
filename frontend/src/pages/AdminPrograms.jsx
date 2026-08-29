@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../utils/axios';
 import Modal from '../components/Modal';
+import ProgramPreviewTree from '../components/ProgramPreviewTree';
 import excelIcon from '../assets/xls.png';
 
 function AdminPrograms() {
@@ -12,6 +13,13 @@ function AdminPrograms() {
   const [showImportWarning, setShowImportWarning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [importChannel, setImportChannel] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [previewModal, setPreviewModal] = useState({
+    isOpen: false,
+    loading: false,
+    program: null,
+    error: ''
+  });
   const fileInputRef = useRef();
   const importWarningTimerRef = useRef(null);
   const [formData, setFormData] = useState({ 
@@ -51,11 +59,13 @@ function AdminPrograms() {
 
   const fetchPrograms = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const res = await axios.get('/api/admin/programs');
       setPrograms(res.data.programs || []);
     } catch (err) {
       console.error('获取培养方案失败', err);
+      setLoadError(err.response?.data?.message || err.message || '获取培养方案失败');
     } finally {
       setLoading(false);
     }
@@ -93,6 +103,21 @@ function AdminPrograms() {
 
   const handleEdit = (id) => {
     navigate(`/admin/programs/${id}`);
+  };
+
+  const handlePreview = async (id) => {
+    setPreviewModal({ isOpen: true, loading: true, program: null, error: '' });
+    try {
+      const res = await axios.get(`/api/admin/programs/${id}/full`);
+      setPreviewModal({ isOpen: true, loading: false, program: res.data.program, error: '' });
+    } catch (err) {
+      setPreviewModal({
+        isOpen: true,
+        loading: false,
+        program: null,
+        error: err.response?.data?.message || err.message || '加载预览失败'
+      });
+    }
   };
 
   const showImportTypeWarning = () => {
@@ -224,6 +249,29 @@ function AdminPrograms() {
         confirmButtonClass={modal.confirmButtonClass}
       >
         {modal.content}
+      </Modal>
+
+      <Modal
+        isOpen={previewModal.isOpen}
+        title={previewModal.program ? `预览：${previewModal.program.name}` : '培养方案预览'}
+        onCancel={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}
+        hideFooter
+        maxWidth="1180px"
+      >
+        <div style={{ minHeight: '260px' }}>
+          {previewModal.loading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>加载中...</div>
+          ) : previewModal.error ? (
+            <div style={{ padding: '20px', color: '#dc3545' }}>{previewModal.error}</div>
+          ) : (
+            <ProgramPreviewTree program={previewModal.program} />
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '18px' }}>
+            <button className="btn btn-secondary" onClick={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}>
+              关闭
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <div className="card">
@@ -380,6 +428,19 @@ function AdminPrograms() {
 
       <div className="card">
         <h3>方案列表</h3>
+        {loadError && (
+          <div style={{
+            color: '#b91c1c',
+            backgroundColor: '#fee2e2',
+            border: '1px solid #fecaca',
+            borderRadius: '6px',
+            padding: '10px 12px',
+            marginBottom: '12px',
+            fontSize: '14px'
+          }}>
+            获取培养方案失败：{loadError}
+          </div>
+        )}
         {loading ? (
           <div>加载中...</div>
         ) : programs.length === 0 ? (
@@ -417,6 +478,12 @@ function AdminPrograms() {
                     <td>{p.source_filename || '-'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '5px' }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handlePreview(p.id)}
+                        >
+                          预览
+                        </button>
                         <button 
                           className="btn btn-primary btn-sm" 
                           onClick={() => handleEdit(p.id)}

@@ -4,6 +4,8 @@ import os
 import sys
 import bcrypt
 import tempfile
+import uuid as uuidlib
+import json
 from playwright.sync_api import sync_playwright
 
 # Add current directory to path to allow imports
@@ -37,6 +39,7 @@ if _is_compiled:
 from database import init_db, db
 from models import *
 from datetime import datetime, date
+from sqlalchemy import or_
 
 # 导入培养方案新系统
 from program_api import program_bp
@@ -874,6 +877,7 @@ def get_courses(current_user):
     
     # course_name: 模糊匹配
     search_name = request.args.get('course_name', '')
+    search_query = request.args.get('q', '').strip()
     
     # 支持单个值或列表的筛选参数（过滤空值）
     department_code = [v for v in request.args.getlist('department_code[]') if v]
@@ -898,6 +902,16 @@ def get_courses(current_user):
     
     if semester:
         query = query.filter(Course.semester == semester)
+
+    if search_query:
+        mappings = CourseNameMapping.query.filter(
+            CourseNameMapping.course_name.like(f"%{search_query}%")
+        ).all()
+        course_ids = [m.course_id for m in mappings]
+        conditions = [Course.course_id.like(f"%{search_query}%")]
+        if course_ids:
+            conditions.append(Course.course_id.in_(course_ids))
+        query = query.filter(or_(*conditions))
     
     # course_id 筛选：列表=精确匹配任意一项，非列表=模糊匹配
     if search_id:
@@ -1225,9 +1239,11 @@ def student_get_transcript(current_user):
             
             course_data = {
                 'record_id': t.record_id,
+                'is_manual': str(t.record_id or '').startswith('manual:'),
                 'uuid': t.uuid,
                 'course_id': t.course_id,
                 'class_number': t.class_number,
+                'semester': f'{t.academic_year}-{t.term}',
                 'course_name': t.course_name,
                 'score': t.score,
                 'score_type': t.score_type,
@@ -1299,6 +1315,425 @@ def student_get_transcript(current_user):
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _parse_transcript_semester(data):
+    semester = str(data.get('semester') or '').strip()
+    if semester:
+        parts = semester.split('-')
+        if len(parts) >= 3:
+            return '-'.join(parts[:2]), int(parts[2])
+        raise ValueError('学期格式应为 25-26-1')
+
+    academic_year = str(data.get('academic_year') or '').strip()
+    term = data.get('term')
+    if not academic_year or term in (None, ''):
+        raise ValueError('请填写学期，或同时填写学年和学期序号')
+    return academic_year, int(term)
+
+
+def _coerce_json_list(value, field_name):
+    if value in (None, ''):
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f'{field_name} 必须是 JSON 数组') from exc
+        if isinstance(parsed, list):
+            return parsed
+    raise ValueError(f'{field_name} 必须是数组')
+
+
+def _ensure_semester_exists(semester_name, academic_year, term):
+    semester = Semester.query.filter_by(name=semester_name).first()
+    if semester:
+        return semester
+    semester = Semester(
+        name=semester_name,
+        academic_year=academic_year,
+        term=term,
+        description='手动录入课程自动创建'
+    )
+    db.session.add(semester)
+    return semester
+
+
+def _find_course_in_semester(course_id, class_number, semester_name):
+    if not course_id or not semester_name:
+        return None
+    query = Course.query.filter_by(course_id=course_id, semester=semester_name)
+    if class_number:
+        exact_class = query.filter_by(class_number=class_number).first()
+        if exact_class:
+            return exact_class
+    return query.first()
+
+
+def _create_course_from_manual_payload(data, academic_year, term, course_id, course_name, class_number, credits):
+    semester_name = f'{academic_year}-{term}'
+    _ensure_semester_exists(semester_name, academic_year, term)
+
+    mapping = CourseNameMapping.query.filter_by(course_id=course_id).first()
+    if not mapping:
+        mapping = CourseNameMapping(
+            course_id=course_id,
+            course_name=course_name,
+            credits=float(credits or 0)
+        )
+        db.session.add(mapping)
+    else:
+        mapping.course_name = course_name
+        mapping.credits = float(credits or mapping.credits or 0)
+
+    course = Course(
+        uuid=f"MANUAL_{uuidlib.uuid4().hex[:12]}",
+        course_id=course_id,
+        course_type=str(data.get('course_type') or '').strip(),
+        department_code=str(data.get('department_code') or '').strip() or '0',
+        class_number=class_number or '',
+        semester=semester_name,
+        class_times=_coerce_json_list(data.get('class_times'), '上课时间'),
+        teachers=_coerce_json_list(data.get('teachers'), '教师'),
+        remarks=str(data.get('remarks') or '手动录入课程').strip()
+    )
+    db.session.add(course)
+    return course
+
+
+def _serialize_manual_transcript(transcript):
+    return {
+        'record_id': transcript.record_id,
+        'is_manual': str(transcript.record_id or '').startswith('manual:'),
+        'uuid': transcript.uuid,
+        'course_id': transcript.course_id,
+        'class_number': transcript.class_number,
+        'academic_year': transcript.academic_year,
+        'term': transcript.term,
+        'semester': f'{transcript.academic_year}-{transcript.term}',
+        'course_name': transcript.course_name,
+        'score': transcript.score,
+        'score_type': transcript.score_type,
+        'credits': transcript.credits,
+        'channel': transcript.channel,
+        'gpa': calculate_course_gpa(transcript.score, transcript.score_type),
+    }
+
+
+def _serialize_deleted_transcript(record):
+    return {
+        'record_id': record.record_id,
+        'is_manual': record.source == 'manual' or str(record.record_id or '').startswith('manual:'),
+        'uuid': record.uuid,
+        'course_id': record.course_id,
+        'class_number': record.class_number,
+        'academic_year': record.academic_year,
+        'term': record.term,
+        'semester': f'{record.academic_year}-{record.term}',
+        'course_name': record.course_name,
+        'score': record.score,
+        'score_type': record.score_type,
+        'credits': record.credits,
+        'channel': record.channel,
+        'source': record.source,
+        'deleted_at': record.deleted_at.isoformat() if record.deleted_at else None,
+        'gpa': calculate_course_gpa(record.score, record.score_type),
+    }
+
+
+def _deleted_transcript_from_transcript(transcript):
+    existing = DeletedTranscript.query.filter_by(
+        user_id=transcript.user_id,
+        record_id=transcript.record_id,
+    ).first()
+    if not existing:
+        existing = DeletedTranscript(
+            user_id=transcript.user_id,
+            record_id=transcript.record_id,
+        )
+        db.session.add(existing)
+
+    existing.uuid = transcript.uuid
+    existing.course_id = transcript.course_id
+    existing.class_number = transcript.class_number
+    existing.academic_year = transcript.academic_year
+    existing.term = transcript.term
+    existing.course_name = transcript.course_name
+    existing.score = transcript.score
+    existing.score_type = transcript.score_type
+    existing.credits = transcript.credits
+    existing.channel = transcript.channel
+    existing.source = 'manual' if str(transcript.record_id or '').startswith('manual:') else 'portal'
+    existing.deleted_at = datetime.utcnow()
+    return existing
+
+
+def _restore_deleted_transcript(deleted_record, current_user, data=None):
+    data = data or {}
+    existing = Transcript.query.filter_by(
+        user_id=current_user.id,
+        record_id=deleted_record.record_id,
+    ).first()
+    if existing:
+        db.session.delete(deleted_record)
+        return existing
+
+    transcript = Transcript(
+        record_id=deleted_record.record_id,
+        user_id=current_user.id,
+        uuid=deleted_record.uuid,
+        course_id=deleted_record.course_id,
+        class_number=deleted_record.class_number,
+        academic_year=deleted_record.academic_year,
+        term=deleted_record.term,
+        course_name=deleted_record.course_name,
+        score=str(data.get('score') or deleted_record.score),
+        score_type=data.get('score_type') or deleted_record.score_type,
+        credits=float(data.get('credits') if data.get('credits') not in (None, '') else deleted_record.credits),
+        channel=int(data.get('channel') if data.get('channel') not in (None, '') else deleted_record.channel),
+    )
+    db.session.add(transcript)
+    db.session.delete(deleted_record)
+    return transcript
+
+
+def _cleanup_orphan_course_assignment(user_id, source_uuid):
+    if not source_uuid:
+        return
+    has_transcript = Transcript.query.filter_by(
+        user_id=user_id,
+        uuid=source_uuid,
+    ).first() is not None
+    has_selected = SelectedCourse.query.filter_by(
+        user_id=user_id,
+        course_uuid=source_uuid,
+    ).first() is not None
+    if not has_transcript and not has_selected:
+        CourseListAssignment.query.filter_by(
+            user_id=user_id,
+            source_type='course',
+            source_uuid=source_uuid,
+        ).delete()
+
+
+def _build_manual_transcript_payload(data, current_user, existing_record_id=None):
+    course_uuid = str(data.get('uuid') or data.get('course_uuid') or '').strip()
+    course = Course.query.filter_by(uuid=course_uuid).first() if course_uuid else None
+    academic_year, term = _parse_transcript_semester(data)
+    semester_name = f'{academic_year}-{term}'
+
+    course_id = str(data.get('course_id') or (course.course_id if course else '')).strip()
+    course_name = str(data.get('course_name') or (course.course_name if course else '')).strip()
+    class_number = str(data.get('class_number') or (course.class_number if course else '')).strip() or None
+    score = str(data.get('score') or '').strip()
+    score_type = str(data.get('score_type') or 'Percentage').strip()
+    credits = float(data.get('credits') if data.get('credits') not in (None, '') else (course.credits if course else 0))
+    channel = int(data.get('channel') if data.get('channel') not in (None, '') else 0)
+    create_course_if_missing = bool(data.get('create_course_if_missing'))
+
+    if not course_id:
+        raise ValueError('课程号不能为空')
+    if not course_name:
+        raise ValueError('课程名称不能为空')
+    if not score:
+        raise ValueError('成绩不能为空')
+    if channel not in (0, 1):
+        raise ValueError('通道只能为主修或辅双')
+
+    if not course or course.semester != semester_name:
+        course = _find_course_in_semester(course_id, class_number, semester_name)
+
+    if not course and create_course_if_missing:
+        course = _create_course_from_manual_payload(
+            data,
+            academic_year,
+            term,
+            course_id,
+            course_name,
+            class_number,
+            credits
+        )
+
+    if course:
+        course_uuid = course.uuid
+        course_id = course.course_id
+        course_name = course.course_name
+        class_number = course.class_number or class_number
+        credits = float(course.credits if course.credits is not None else credits)
+    elif not course_uuid or not course_uuid.startswith('manual:'):
+        course_uuid = f'manual:{current_user.id}:{uuidlib.uuid4().hex}'
+
+    record_id = existing_record_id or (
+        f'manual:{current_user.id}:{course_uuid}'
+        if not course_uuid.startswith('manual:')
+        else course_uuid
+    )
+    return {
+        'record_id': record_id,
+        'user_id': current_user.id,
+        'uuid': course_uuid,
+        'course_id': course_id,
+        'class_number': class_number,
+        'academic_year': academic_year,
+        'term': term,
+        'course_name': course_name,
+        'score': score,
+        'score_type': score_type,
+        'credits': credits,
+        'channel': channel,
+    }
+
+
+@app.route('/api/student/transcript/manual', methods=['POST'])
+@student_required
+def student_create_manual_transcript(current_user):
+    """手动录入一条已修课程成绩"""
+    data = request.json or {}
+    try:
+        deleted_record_id = str(data.get('deleted_record_id') or '').strip()
+        if deleted_record_id:
+            deleted_record = DeletedTranscript.query.filter_by(
+                user_id=current_user.id,
+                record_id=deleted_record_id,
+            ).first()
+            if not deleted_record:
+                return jsonify({'success': False, 'message': '已删除成绩记录不存在'}), 404
+            transcript = _restore_deleted_transcript(deleted_record, current_user, data)
+            db.session.commit()
+            return jsonify({
+                'success': True,
+                'transcript': _serialize_manual_transcript(transcript),
+                'restored': True,
+            })
+
+        payload = _build_manual_transcript_payload(data, current_user)
+        existing = Transcript.query.filter_by(
+            user_id=current_user.id,
+            record_id=payload['record_id'],
+        ).first()
+        if existing:
+            return jsonify({'success': False, 'message': '该课程已手动录入，可编辑已有记录'}), 409
+
+        transcript = Transcript(**payload)
+        db.session.add(transcript)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'transcript': _serialize_manual_transcript(transcript),
+        })
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/student/transcript/deleted', methods=['GET'])
+@student_required
+def student_get_deleted_transcripts(current_user):
+    """查询用户删除过的成绩，供添加入口恢复"""
+    q = request.args.get('q', '').strip().lower()
+    semester = request.args.get('semester', '').strip()
+    query = DeletedTranscript.query.filter_by(user_id=current_user.id)
+    if semester:
+        parts = semester.split('-')
+        if len(parts) >= 3:
+            query = query.filter(
+                DeletedTranscript.academic_year == '-'.join(parts[:2]),
+                DeletedTranscript.term == int(parts[2]),
+            )
+    records = query.order_by(
+        DeletedTranscript.academic_year.desc(),
+        DeletedTranscript.term.desc(),
+        DeletedTranscript.course_id,
+    ).all()
+    if q:
+        records = [
+            record for record in records
+            if q in (record.course_id or '').lower()
+            or q in (record.course_name or '').lower()
+        ]
+    return jsonify({
+        'success': True,
+        'records': [_serialize_deleted_transcript(record) for record in records[:100]],
+    })
+
+
+@app.route('/api/student/transcript/manual/<path:record_id>', methods=['PUT'])
+@student_required
+def student_update_manual_transcript(record_id, current_user):
+    """更新一条手动录入的成绩"""
+    transcript = Transcript.query.filter_by(
+        user_id=current_user.id,
+        record_id=record_id,
+    ).first()
+    if not transcript:
+        return jsonify({'success': False, 'message': '成绩记录不存在'}), 404
+    if not str(transcript.record_id or '').startswith('manual:'):
+        return jsonify({'success': False, 'message': '只能编辑手动录入的成绩'}), 403
+
+    old_uuid = transcript.uuid
+    data = request.json or {}
+    try:
+        payload = _build_manual_transcript_payload(data, current_user, existing_record_id=transcript.record_id)
+        for key, value in payload.items():
+            if key not in ('record_id', 'user_id'):
+                setattr(transcript, key, value)
+        db.session.flush()
+        if old_uuid != transcript.uuid:
+            _cleanup_orphan_course_assignment(current_user.id, old_uuid)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'transcript': _serialize_manual_transcript(transcript),
+        })
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _delete_transcript_record(record_id, current_user):
+    transcript = Transcript.query.filter_by(
+        user_id=current_user.id,
+        record_id=record_id,
+    ).first()
+    if not transcript:
+        return jsonify({'success': False, 'message': '成绩记录不存在'}), 404
+
+    try:
+        source_uuid = transcript.uuid
+        deleted_record = _deleted_transcript_from_transcript(transcript)
+        db.session.delete(transcript)
+        db.session.flush()
+        _cleanup_orphan_course_assignment(current_user.id, source_uuid)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'deleted': _serialize_deleted_transcript(deleted_record),
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/student/transcript/manual/<path:record_id>', methods=['DELETE'])
+@student_required
+def student_delete_manual_transcript(record_id, current_user):
+    """删除一条手动录入的成绩，保留兼容旧前端路径"""
+    return _delete_transcript_record(record_id, current_user)
+
+
+@app.route('/api/student/transcript/<path:record_id>', methods=['DELETE'])
+@student_required
+def student_delete_transcript(record_id, current_user):
+    """删除任意一条主修/辅双成绩，删除后后续同步不会自动恢复"""
+    return _delete_transcript_record(record_id, current_user)
 
 @app.route('/api/student/schedule/pdf', methods=['POST'])
 @student_required
@@ -1703,8 +2138,15 @@ def student_sync_transcript(current_user):
     dissertation_info = result.get('dissertation_transcripts', {})
 
     try:
-        # 1. 清空主修/辅双成绩单
-        Transcript.query.filter_by(user_id=current_user.id).delete()
+        deleted_record_ids = {
+            record.record_id
+            for record in DeletedTranscript.query.filter_by(user_id=current_user.id).all()
+        }
+
+        # 1. 清空主修/辅双成绩单，但保留用户手动录入的成绩
+        Transcript.query.filter_by(user_id=current_user.id).filter(
+            ~Transcript.record_id.like('manual:%')
+        ).delete(synchronize_session=False)
         
         # 2. 清空转交流成绩单
         ExchangeTranscript.query.filter_by(user_id=current_user.id).delete()
@@ -1754,6 +2196,8 @@ def student_sync_transcript(current_user):
                     
                     if not record_id or not course_id:
                         continue
+                    if record_id in deleted_record_ids:
+                        continue
                     
                     transcript = Transcript(
                         record_id=record_id,
@@ -1793,6 +2237,8 @@ def student_sync_transcript(current_user):
                     credits = float(course.get('credits', 0))
                     
                     if not record_id or not course_id:
+                        continue
+                    if record_id in deleted_record_ids:
                         continue
                     
                     transcript = Transcript(

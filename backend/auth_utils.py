@@ -670,6 +670,18 @@ def student_required(f):
     return decorated_function
 
 
+MANAGER_ROLES = {'admin', 'local'}
+
+
+def has_admin_permission(user):
+    """Return whether a user can access management APIs.
+
+    The app currently treats the single local user as a manager. If role
+    separation is needed again later, narrow MANAGER_ROLES to {'admin'}.
+    """
+    return bool(user and user.role in MANAGER_ROLES)
+
+
 def admin_required(f):
     """管理员权限装饰器"""
     @wraps(f)
@@ -677,7 +689,7 @@ def admin_required(f):
         user = get_current_user()
         if not user:
             return jsonify({'success': False, 'message': '请先登录'}), 401
-        if user.role != 'admin':
+        if not has_admin_permission(user):
             return jsonify({'success': False, 'message': '需要管理员权限'}), 403
         kwargs['current_user'] = user
         return f(*args, **kwargs)

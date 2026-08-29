@@ -395,6 +395,34 @@ class Transcript(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class DeletedTranscript(db.Model):
+    """用户主动删除的成绩单记录，用于隐藏和防止同步恢复"""
+    __tablename__ = 'deleted_transcripts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    user = db.relationship('User', backref='deleted_transcripts')
+
+    record_id = db.Column(db.String(100), nullable=False, index=True)
+    uuid = db.Column(db.String(50), nullable=False, index=True)
+    course_id = db.Column(db.String(20), nullable=False, index=True)
+    class_number = db.Column(db.String(10))
+    academic_year = db.Column(db.String(10), nullable=False)
+    term = db.Column(db.Integer, nullable=False)
+    course_name = db.Column(db.String(100), nullable=False)
+    score = db.Column(db.String(10), nullable=False)
+    score_type = db.Column(db.String(20))
+    credits = db.Column(db.Float, nullable=False)
+    channel = db.Column(db.Integer, nullable=False)
+    source = db.Column(db.String(20), nullable=False, default='portal')
+
+    deleted_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'record_id', name='uq_deleted_transcript_user_record'),
+    )
+
+
 class ExchangeTranscript(db.Model):
     """转交流成绩记录"""
     __tablename__ = 'exchange_transcripts'

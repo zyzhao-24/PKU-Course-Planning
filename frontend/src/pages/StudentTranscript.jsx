@@ -30,7 +30,7 @@ const RainbowStyle = () => (
 );
 
 // 课程卡片组件 - 大色条显示
-const CourseCard = ({ course }) => {
+const CourseCard = ({ course, onDeleteManual }) => {
   const color = getScoreColor(course.score, course.score_type);
   const fillPercent = getFillPercent(course.score, course.score_type);
   const isPercent = course.score_type === 'Percentage';
@@ -92,6 +92,22 @@ const CourseCard = ({ course }) => {
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexShrink: 0 }}>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteManual?.(course);
+            }}
+            style={{
+              position: 'relative',
+              zIndex: 20,
+              borderColor: 'rgba(255,255,255,0.75)',
+              backgroundColor: 'rgba(185, 28, 28, 0.9)'
+            }}
+          >
+            删除
+          </button>
           <div style={{ textAlign: 'center' }}>
             <div style={{ ...textStyle, fontSize: '22px', fontWeight: 'bold' }}>
               {course.score}
@@ -461,6 +477,19 @@ function StudentTranscript() {
     }
   };
 
+  const handleDeleteManualCourse = async (course) => {
+    if (!window.confirm(`确认删除“${course.course_name}”？北大接口同步的课程删除后，后续同步不会自动恢复。`)) return;
+
+    try {
+      await axios.delete(`/api/student/transcript/${encodeURIComponent(course.record_id)}`);
+      await axios.post('/api/student/progress/recalculate');
+      await fetchTranscript();
+      showModal('删除成功', '课程已删除，培养方案已重新计算。', 'success');
+    } catch (err) {
+      showModal('删除失败', err.response?.data?.message || err.message, 'error');
+    }
+  };
+
   const toggleTerm = (key) => {
     setExpandedTerms(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -609,7 +638,7 @@ function StudentTranscript() {
                     )}
                     
                     {term.courses?.filter(c => c.channel === 0).map((course) => (
-                      <CourseCard key={course.record_id} course={course} />
+                      <CourseCard key={course.record_id} course={course} onDeleteManual={handleDeleteManualCourse} />
                     ))}
                     
                     {hasMinor && (
@@ -626,7 +655,7 @@ function StudentTranscript() {
                           辅双成绩
                         </div>
                         {term.courses.filter(c => c.channel === 1).map((course) => (
-                          <CourseCard key={course.record_id} course={course} />
+                          <CourseCard key={course.record_id} course={course} onDeleteManual={handleDeleteManualCourse} />
                         ))}
                       </>
                     )}

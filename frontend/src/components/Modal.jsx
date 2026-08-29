@@ -1,6 +1,6 @@
 import React from 'react';
 
-function Modal({ isOpen, title, children, onConfirm, onCancel, confirmText = '确定', cancelText = '取消', showCancel = true, confirmButtonClass = 'btn btn-primary', hideFooter = false }) {
+function Modal({ isOpen, title, children, onConfirm, onCancel, confirmText = '确定', cancelText = '取消', showCancel = true, confirmButtonClass = 'btn btn-primary', hideFooter = false, maxWidth = '500px' }) {
   if (!isOpen) return null;
 
   return (
@@ -12,7 +12,7 @@ function Modal({ isOpen, title, children, onConfirm, onCancel, confirmText = '�
     }}>
       <div className="modal-content" style={{
         backgroundColor: 'white', padding: '24px', borderRadius: '12px',
-        minWidth: '320px', maxWidth: '500px', width: '90%',
+        minWidth: '320px', maxWidth, width: '90%',
         boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
         maxHeight: '85vh', overflowY: 'auto',
         border: '1px solid rgba(255,255,255,0.5)'
