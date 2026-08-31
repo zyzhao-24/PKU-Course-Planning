@@ -5,7 +5,7 @@ import Modal from '../components/Modal';
 import { useSemester } from '../contexts/SemesterContext';
 import { getFilterDescription, getCourseListRulesDescription, getNodeRulesDescription, DEPARTMENT_CODE_MAP, formatClassTimes, checkTimeConflict } from '../utils';
 
-function CourseLookupInput({ value, onChange, onSelect, semester, placeholder, includeDeleted = false }) {
+function CourseLookupInput({ value, onChange, onSelect, semester, placeholder }) {
   const [focused, setFocused] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
@@ -79,11 +79,7 @@ function CourseLookupInput({ value, onChange, onSelect, semester, placeholder, i
       try {
         const params = { per_page: 80, q: query, distinct_mode: 'true' };
         if (semester) params.semester = semester;
-        const requests = [axios.get('/api/courses', { params })];
-        if (includeDeleted) {
-          requests.push(axios.get('/api/student/transcript/deleted', { params: { q: query } }));
-        }
-        const [courseRes, deletedRes] = await Promise.all(requests);
+        const courseRes = await axios.get('/api/courses', { params });
         if (cancelled) return;
         const courses = courseRes.data.courses || [];
         const groupedCourses = new Map();
@@ -92,7 +88,7 @@ function CourseLookupInput({ value, onChange, onSelect, semester, placeholder, i
             ? `${course.course_id}|${course.course_name}`
             : `${course.course_id}|${course.course_name}`;
           if (!groupedCourses.has(key)) {
-            groupedCourses.set(key, { ...course, lookupType: 'course' });
+            groupedCourses.set(key, course);
           }
         });
         const courseSuggestions = Array.from(groupedCourses.values())
@@ -106,11 +102,7 @@ function CourseLookupInput({ value, onChange, onSelect, semester, placeholder, i
             if (aRank !== bRank) return aRank - bRank;
             return `${a.course_name}${a.course_id}`.localeCompare(`${b.course_name}${b.course_id}`, 'zh-Hans-CN');
           });
-        const deletedSuggestions = (deletedRes?.data?.records || []).map(record => ({
-          ...record,
-          lookupType: 'deleted'
-        }));
-        setSuggestions([...deletedSuggestions, ...courseSuggestions].slice(0, 80));
+        setSuggestions(courseSuggestions.slice(0, 80));
       } catch (err) {
         if (!cancelled) setSuggestions([]);
       } finally {
@@ -122,7 +114,7 @@ function CourseLookupInput({ value, onChange, onSelect, semester, placeholder, i
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, semester, includeDeleted]);
+  }, [query, semester]);
 
   const dropdown = focused && query && dropdownStyle ? (
     <div
@@ -146,7 +138,7 @@ function CourseLookupInput({ value, onChange, onSelect, semester, placeholder, i
       {!loadingSuggestions && suggestions.map(course => (
         <button
           type="button"
-          key={`${course.lookupType}-${course.record_id || course.uuid || course.course_id}`}
+          key={course.uuid || course.course_id}
           onMouseDown={event => event.preventDefault()}
           onClick={() => {
             onSelect(course);
@@ -168,9 +160,6 @@ function CourseLookupInput({ value, onChange, onSelect, semester, placeholder, i
         >
           <div style={{ fontWeight: 600, fontSize: '13px', color: '#1f2937' }}>
             {course.course_id} - {course.course_name}
-            {course.lookupType === 'deleted' && (
-              <span style={{ marginLeft: '8px', color: '#b45309', fontSize: '12px' }}>已删除，可恢复</span>
-            )}
           </div>
           <div style={{ color: '#64748b', fontSize: '12px', marginTop: '3px', lineHeight: 1.4 }}>
             {course.semester || '未知学期'} · {course.class_number || '无班号'} · {DEPARTMENT_CODE_MAP[course.department_code] || course.department_code || '未知院系'} · {course.course_type || '未知类型'} · {course.credits ?? '-'} 学分
@@ -221,14 +210,8 @@ function StudentProgress() {
     saving: false,
     message: ''
   });
-  const [deleteTranscriptModal, setDeleteTranscriptModal] = useState({
-    isOpen: false,
-    deletingRecordId: null,
-    message: ''
-  });
   const [manualTranscriptForm, setManualTranscriptForm] = useState({
     semester: selectedSemester || '',
-    deleted_record_id: '',
     uuid: '',
     course_id: '',
     class_number: '',
@@ -243,8 +226,6 @@ function StudentProgress() {
     classTimesText: '',
     remarks: ''
   });
-  const [transcriptRecords, setTranscriptRecords] = useState([]);
-
   const [modal, setModal] = useState({
     isOpen: false,
     title: '',
@@ -328,10 +309,6 @@ function StudentProgress() {
             allTranscriptCourses.push(...term.courses);
           }
         });
-        setTranscriptRecords(
-          allTranscriptCourses
-            .sort((a, b) => `${b.semester || ''}`.localeCompare(`${a.semester || ''}`))
-        );
         // 记录成绩单中的课程号（排除W成绩）
         newTranscriptCourseIds = new Set(
           allTranscriptCourses
@@ -459,7 +436,6 @@ function StudentProgress() {
   const openManualTranscriptModal = () => {
     setManualTranscriptForm(prev => ({
       ...prev,
-      deleted_record_id: '',
       semester: selectedSemester || prev.semester || '',
       channel: activeTab === 'minor' ? 1 : 0
     }));
@@ -485,26 +461,9 @@ function StudentProgress() {
     }));
   };
 
-  const openDeleteTranscriptModal = () => {
-    setDeleteTranscriptModal({
-      isOpen: true,
-      deletingRecordId: null,
-      message: ''
-    });
-  };
-
-  const closeDeleteTranscriptModal = () => {
-    setDeleteTranscriptModal({
-      isOpen: false,
-      deletingRecordId: null,
-      message: ''
-    });
-  };
-
   const selectManualCourse = (course) => {
     setManualTranscriptForm(prev => ({
       ...prev,
-      deleted_record_id: course.lookupType === 'deleted' ? course.record_id : '',
       uuid: course.uuid || '',
       course_id: course.course_id || '',
       class_number: course.class_number || '',
@@ -537,7 +496,6 @@ function StudentProgress() {
   };
 
   const checkManualCourseExistsInSemester = async () => {
-    if (manualTranscriptForm.deleted_record_id) return true;
     const semester = manualTranscriptForm.semester;
     const courseId = manualTranscriptForm.course_id.trim();
     if (!semester || !courseId) return true;
@@ -623,34 +581,6 @@ function StudentProgress() {
         message: err.response?.data?.message || err.message || '录入失败'
       }));
     }
-  };
-
-  const handleDeleteTranscript = (record) => {
-    showModal(
-      '删除已修课程',
-      <div>
-        确认删除“{record.course_name}”？删除后会重新计算培养方案完成情况。北大接口同步的课程会保留删除记录，后续同步不会自动恢复。
-      </div>,
-      async () => {
-        try {
-          setModal(prev => ({ ...prev, isOpen: false }));
-          setDeleteTranscriptModal(prev => ({ ...prev, deletingRecordId: record.record_id, message: '' }));
-          await axios.delete(`/api/student/transcript/${encodeURIComponent(record.record_id)}`);
-          await axios.post('/api/student/progress/recalculate');
-          await fetchSelectedCourses();
-          await fetchProgress();
-          setDeleteTranscriptModal(prev => ({ ...prev, deletingRecordId: null, message: '' }));
-        } catch (err) {
-          setDeleteTranscriptModal(prev => ({
-            ...prev,
-            deletingRecordId: null,
-            message: err.response?.data?.message || err.message || '删除失败'
-          }));
-          showModal('错误', '删除失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
-        }
-      },
-      true
-    );
   };
 
   const toggleNode = (nodeId) => {
@@ -1404,11 +1334,9 @@ function StudentProgress() {
                 onChange={value => {
                   updateManualTranscriptField('course_id', value);
                   if (manualTranscriptForm.uuid) updateManualTranscriptField('uuid', '');
-                  if (manualTranscriptForm.deleted_record_id) updateManualTranscriptField('deleted_record_id', '');
                 }}
                 onSelect={selectManualCourse}
                 semester={manualTranscriptForm.semester}
-                includeDeleted
                 placeholder="输入课程号检索"
               />
             </label>
@@ -1420,11 +1348,9 @@ function StudentProgress() {
                 onChange={value => {
                   updateManualTranscriptField('course_name', value);
                   if (manualTranscriptForm.uuid) updateManualTranscriptField('uuid', '');
-                  if (manualTranscriptForm.deleted_record_id) updateManualTranscriptField('deleted_record_id', '');
                 }}
                 onSelect={selectManualCourse}
                 semester={manualTranscriptForm.semester}
-                includeDeleted
                 placeholder="输入课程名称检索"
               />
             </label>
@@ -1595,87 +1521,6 @@ function StudentProgress() {
     );
   };
 
-  const renderDeleteTranscriptModal = () => (
-    <Modal
-      isOpen={deleteTranscriptModal.isOpen}
-      title="删除已修课程"
-      onCancel={closeDeleteTranscriptModal}
-      hideFooter
-      maxWidth="760px"
-    >
-      {transcriptRecords.length === 0 ? (
-        <div style={{ color: '#64748b', fontSize: '14px', padding: '20px 0' }}>
-          当前没有可删除的已修课程。
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gap: '8px', maxHeight: '460px', overflowY: 'auto' }}>
-          {transcriptRecords.map(record => (
-            <div
-              key={record.record_id}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '10px 12px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                backgroundColor: '#f8fafc'
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '13px', color: '#1f2937' }}>
-                  {record.course_id} - {record.course_name}
-                  <span style={{
-                    marginLeft: '8px',
-                    padding: '1px 6px',
-                    borderRadius: '999px',
-                    backgroundColor: record.is_manual ? '#dbeafe' : '#fef3c7',
-                    color: record.is_manual ? '#1d4ed8' : '#92400e',
-                    fontSize: '11px'
-                  }}>
-                    {record.is_manual ? '手动' : '北大同步'}
-                  </span>
-                </div>
-                <div style={{ color: '#64748b', fontSize: '12px', marginTop: '3px' }}>
-                  {record.semester} · {record.class_number || '无班号'} · {record.credits} 学分 · {record.score} · {record.channel === 1 ? '辅双' : '主修'}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                disabled={deleteTranscriptModal.deletingRecordId === record.record_id}
-                onClick={() => handleDeleteTranscript(record)}
-              >
-                {deleteTranscriptModal.deletingRecordId === record.record_id ? '删除中...' : '删除'}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {deleteTranscriptModal.message && (
-        <div style={{
-          marginTop: '12px',
-          color: '#b91c1c',
-          backgroundColor: '#fee2e2',
-          border: '1px solid #fecaca',
-          borderRadius: '6px',
-          padding: '10px',
-          fontSize: '13px'
-        }}>
-          {deleteTranscriptModal.message}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '14px' }}>
-        <button type="button" className="btn btn-secondary" onClick={closeDeleteTranscriptModal}>
-          关闭
-        </button>
-      </div>
-    </Modal>
-  );
-
   if (loading) return <div className="card">加载中...</div>;
   if (error) return <div className="card" style={{ color: '#dc3545' }}>错误: {error}</div>;
 
@@ -1685,7 +1530,6 @@ function StudentProgress() {
   return (
     <div>
       {renderManualTranscriptModal()}
-      {renderDeleteTranscriptModal()}
       <Modal 
         isOpen={modal.isOpen} 
         title={modal.title} 
@@ -1702,7 +1546,6 @@ function StudentProgress() {
           <h3 style={{ margin: 0 }}>培养方案完成情况</h3>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button className="btn btn-secondary btn-sm" onClick={openManualTranscriptModal}>添加已修课程</button>
-            <button className="btn btn-secondary btn-sm" onClick={openDeleteTranscriptModal}>删除已修课程</button>
             <button className="btn btn-secondary btn-sm" onClick={expandAll}>展开全部</button>
             <button className="btn btn-secondary btn-sm" onClick={collapseAll}>收起全部</button>
             <button className="btn btn-primary btn-sm" onClick={recalculateProgress} disabled={loading}>

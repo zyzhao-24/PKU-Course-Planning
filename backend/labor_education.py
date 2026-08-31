@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Dict, List
 
 from database import db
+from resource_paths import runtime_data_path
 
 
-DEFAULT_POOL_PATH = Path(__file__).resolve().parent / "seed_data" / "labor_education_pool.json"
+DEFAULT_POOL_PATH = runtime_data_path("labor_education_pool.json")
 
 
 def serialize_pool_item(item) -> Dict[str, Any]:
@@ -81,4 +81,3 @@ def seed_default_pool(reset: bool = False) -> int:
 
 def is_labor_education_node(node_name: str | None) -> bool:
     return "".join((node_name or "").split()) == "劳动教育课"
-

@@ -324,6 +324,12 @@ class Course(db.Model):
     class_times = db.Column(JSON)  # [{day, start_period, end_period, week_range}, ...] - 不包含location
     teachers = db.Column(JSON)     # Storing list of strings
     remarks = db.Column(db.String(200))
+
+    selected_courses = db.relationship(
+        'SelectedCourse',
+        back_populates='course',
+        cascade='all, delete-orphan',
+    )
     
     @property
     def course_name(self):
@@ -359,7 +365,7 @@ class SelectedCourse(db.Model):
     remarks = db.Column(db.String(500))
     channel = db.Column(db.Integer, nullable=False, default=0)  # 0: 主修，1: 辅双, 2: 转交流, 3: 毕业论文
     
-    course = db.relationship('Course')
+    course = db.relationship('Course', back_populates='selected_courses')
     
     # 唯一约束：每个学生只能选同一门课（相同uuid代表同一门课同一次开课）一次
     __table_args__ = (
@@ -393,34 +399,6 @@ class Transcript(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class DeletedTranscript(db.Model):
-    """用户主动删除的成绩单记录，用于隐藏和防止同步恢复"""
-    __tablename__ = 'deleted_transcripts'
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    user = db.relationship('User', backref='deleted_transcripts')
-
-    record_id = db.Column(db.String(100), nullable=False, index=True)
-    uuid = db.Column(db.String(50), nullable=False, index=True)
-    course_id = db.Column(db.String(20), nullable=False, index=True)
-    class_number = db.Column(db.String(10))
-    academic_year = db.Column(db.String(10), nullable=False)
-    term = db.Column(db.Integer, nullable=False)
-    course_name = db.Column(db.String(100), nullable=False)
-    score = db.Column(db.String(10), nullable=False)
-    score_type = db.Column(db.String(20))
-    credits = db.Column(db.Float, nullable=False)
-    channel = db.Column(db.Integer, nullable=False)
-    source = db.Column(db.String(20), nullable=False, default='portal')
-
-    deleted_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    __table_args__ = (
-        db.UniqueConstraint('user_id', 'record_id', name='uq_deleted_transcript_user_record'),
-    )
 
 
 class ExchangeTranscript(db.Model):

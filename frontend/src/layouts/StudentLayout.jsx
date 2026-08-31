@@ -9,9 +9,8 @@ function StudentLayout() {
     { path: '/student/schedule', label: '我的课表' },
     { path: '/student/transcript', label: '成绩单' },
     { path: '/student/progress', label: '培养方案' },
-    { path: '/admin/courses', label: '课程管理' },
+    { path: '/admin/courses', label: '课程与学期' },
     { path: '/admin/programs', label: '方案管理' },
-    { path: '/admin/semester-config', label: '学期配置' },
     { path: '/admin/students', label: '设置' },
   ];
 

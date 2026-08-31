@@ -127,14 +127,14 @@ function CourseForm({ course, onSave, onCancel, semester }) {
     <form onSubmit={handleSubmit}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '15px', marginBottom: '15px' }}>
         <div className="form-group">
-          <label>执行计划编号 (UUID) *</label>
+          <label>执行计划编号 (UUID)</label>
           <input 
             type="text" 
             value={formData.uuid} 
             onChange={(e) => setFormData({...formData, uuid: e.target.value})}
             disabled={!!course?.uuid}
             style={course?.uuid ? { backgroundColor: '#f5f5f5' } : {}}
-            required
+            placeholder="留空时自动生成"
           />
         </div>
         <div className="form-group">
@@ -239,6 +239,167 @@ function CourseForm({ course, onSave, onCancel, semester }) {
         <button type="submit" className="btn btn-primary">{course?.uuid ? '保存修改' : '创建课程'}</button>
       </div>
     </form>
+  );
+}
+
+function SemesterManager({ showModal, closeModal }) {
+  const {
+    semesters,
+    semesterConfigs,
+    selectedSemester,
+    setSelectedSemester,
+    refreshSemesters,
+  } = useSemester();
+  const [showCreate, setShowCreate] = useState(false);
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('1');
+  const [newMonday, setNewMonday] = useState('');
+  const [newDescription, setNewDescription] = useState('');
+  const [monday, setMonday] = useState('');
+  const [description, setDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
+
+  useEffect(() => {
+    const config = semesterConfigs[selectedSemester] || {};
+    setMonday(config.first_week_monday || '');
+    setDescription(config.description || '');
+  }, [selectedSemester, semesterConfigs]);
+
+  const createSemester = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setStatus('');
+    try {
+      const name = `${academicYear}-${term}`;
+      await axios.post('/api/admin/semesters', {
+        name,
+        academic_year: academicYear,
+        term: Number(term),
+        first_week_monday: newMonday,
+        description: newDescription,
+      });
+      await refreshSemesters();
+      setSelectedSemester(name);
+      setShowCreate(false);
+      setAcademicYear('');
+      setTerm('1');
+      setNewMonday('');
+      setNewDescription('');
+      setStatus('学期创建成功');
+    } catch (err) {
+      setStatus(err.response?.data?.message || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateSemester = async () => {
+    if (!selectedSemester) return;
+    setSaving(true);
+    setStatus('');
+    try {
+      await axios.put(`/api/admin/semesters/${selectedSemester}`, {
+        first_week_monday: monday,
+        description,
+      });
+      await refreshSemesters();
+      setStatus('学期信息已保存');
+    } catch (err) {
+      setStatus(err.response?.data?.message || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSemester = () => {
+    if (!selectedSemester) return;
+    const courseCount = semesterConfigs[selectedSemester]?.course_count || 0;
+    showModal(
+      '删除学期',
+      `确定删除 ${selectedSemester}？该学期的 ${courseCount} 条开课记录将一并删除。`,
+      async () => {
+        try {
+          await axios.delete(`/api/admin/semesters/${selectedSemester}`);
+          closeModal();
+          await refreshSemesters();
+          setStatus('学期已删除');
+        } catch (err) {
+          closeModal();
+          setStatus(err.response?.data?.message || err.message);
+        }
+      },
+      true,
+      'btn btn-danger',
+    );
+  };
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>学期管理</h3>
+          <div style={{ marginTop: '5px', color: '#64748b', fontSize: '13px' }}>
+            {selectedSemester
+              ? `${selectedSemester} · ${semesterConfigs[selectedSemester]?.course_count || 0} 条开课记录`
+              : '尚未创建学期'}
+          </div>
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowCreate(value => !value)}>
+          {showCreate ? '取消创建' : '+ 新建学期'}
+        </button>
+      </div>
+
+      {showCreate && (
+        <form onSubmit={createSemester} style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+            <div className="form-group">
+              <label>学年</label>
+              <input value={academicYear} onChange={event => setAcademicYear(event.target.value)} placeholder="26-27" required />
+            </div>
+            <div className="form-group">
+              <label>学期</label>
+              <select value={term} onChange={event => setTerm(event.target.value)}>
+                <option value="1">第一学期</option>
+                <option value="2">第二学期</option>
+                <option value="3">第三学期</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>第一周周一</label>
+              <input type="date" value={newMonday} onChange={event => setNewMonday(event.target.value)} required />
+            </div>
+            <div className="form-group">
+              <label>说明</label>
+              <input value={newDescription} onChange={event => setNewDescription(event.target.value)} />
+            </div>
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={saving}>创建学期</button>
+        </form>
+      )}
+
+      {selectedSemester && !showCreate && (
+        <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            <div className="form-group">
+              <label>第一周周一</label>
+              <input type="date" value={monday} onChange={event => setMonday(event.target.value)} required />
+            </div>
+            <div className="form-group">
+              <label>说明</label>
+              <input value={description} onChange={event => setDescription(event.target.value)} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" className="btn btn-primary" onClick={updateSemester} disabled={saving}>保存学期信息</button>
+            <button type="button" className="btn btn-danger" onClick={deleteSemester} disabled={saving}>删除学期</button>
+          </div>
+        </div>
+      )}
+
+      {status && <div style={{ marginTop: '12px', color: status.includes('成功') || status.includes('保存') || status.includes('删除') ? '#2f855a' : '#c62828', fontSize: '13px' }}>{status}</div>}
+      {semesters.length === 0 && !showCreate && <div style={{ marginTop: '16px', color: '#64748b' }}>请先创建学期，再导入课程。</div>}
+    </div>
   );
 }
 
@@ -650,7 +811,7 @@ function LaborEducationPoolManager() {
         <button className="btn btn-secondary btn-sm" onClick={resetDefaults}>恢复默认</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 0.8fr) minmax(420px, 1.2fr)', gap: '20px', marginTop: '18px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginTop: '18px' }}>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label>课程号</label>
@@ -683,7 +844,7 @@ function LaborEducationPoolManager() {
           </div>
         </form>
 
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
             <select value={systemFilter} onChange={e => setSystemFilter(e.target.value)} style={{ maxWidth: '180px' }}>
               <option value="">全部课程体系</option>
@@ -727,13 +888,25 @@ function LaborEducationPoolManager() {
 }
 
 function AdminCourses() {
-  const { selectedSemester } = useSemester();
+  const {
+    semesters,
+    selectedSemester,
+    setSelectedSemester,
+    refreshSemesters,
+  } = useSemester();
   const [courses, setCourses] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [importStatus, setImportStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [sourceSemester, setSourceSemester] = useState('');
+  const [targetMode, setTargetMode] = useState('source');
+  const [targetAcademicYear, setTargetAcademicYear] = useState('');
+  const [importMode, setImportMode] = useState('append');
+  const [importMonday, setImportMonday] = useState('');
+  const [importing, setImporting] = useState(false);
   const fileInputRef = useRef();
 
   // Search States
@@ -820,41 +993,71 @@ function AdminCourses() {
     }
   };
 
-  const handleFileUpload = async (files) => {
-    if (!files || files.length === 0) return;
+  const targetSemester = (() => {
+    if (!sourceSemester) return '';
+    if (targetMode === 'source') return sourceSemester;
+    const term = sourceSemester.split('-')[2];
+    return targetAcademicYear ? `${targetAcademicYear}-${term}` : '';
+  })();
+  const targetSemesterExists = !!targetSemester && semesters.includes(targetSemester);
 
-    const fileList = Array.from(files);
-    setImportStatus(`正在导入 ${fileList.length} 个文件...`);
-
-    let successCount = 0;
-    let errorMessages = [];
-
-    for (const file of fileList) {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const res = await axios.post('/api/admin/courses/import', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        successCount++;
-      } catch (err) {
-        errorMessages.push(`${file.name}: ${err.response?.data?.message || err.message}`);
+  const handleFileSelection = async (file) => {
+    if (!file) return;
+    setImportStatus('');
+    try {
+      const payload = JSON.parse(await file.text());
+      const semester = payload?.metadata?.yearandseme;
+      if (!/^\d{2}-\d{2}-[123]$/.test(semester || '') || !Array.isArray(payload?.courses)) {
+        throw new Error('JSON 必须包含 metadata.yearandseme 和 courses 数组');
       }
+      setImportFile(file);
+      setSourceSemester(semester);
+      setTargetMode('source');
+      setTargetAcademicYear('');
+      setImportMonday('');
+    } catch (err) {
+      setImportFile(null);
+      setSourceSemester('');
+      setImportStatus(err.message || '无法读取 JSON');
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile || !targetSemester) {
+      setImportStatus('请选择课程 JSON 和目标学期');
+      return;
+    }
+    if (!targetSemesterExists && !importMonday) {
+      setImportStatus('目标学期不存在，请提供第一周周一日期');
+      return;
     }
 
-    if (errorMessages.length > 0) {
-      setImportStatus(`导入完成: ${successCount}/${fileList.length} 成功\n错误:\n${errorMessages.join('\n')}`);
-    } else {
-      setImportStatus(`成功导入 ${successCount} 个文件`);
+    setImporting(true);
+    setImportStatus('正在导入...');
+    const formData = new FormData();
+    formData.append('file', importFile);
+    formData.append('import_mode', importMode);
+    if (targetMode === 'other') {
+      formData.append('target_academic_year', targetAcademicYear);
     }
-    
-    fetchCourses();
-    fetchCourseTypes();
-    
-    // 重置文件输入
-    if (fileInputRef.current) {
-      fileInputRef.current.value = null;
+    if (!targetSemesterExists) {
+      formData.append('first_week_monday', importMonday);
+    }
+
+    try {
+      const res = await axios.post('/api/admin/courses/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setImportStatus(res.data.message);
+      await refreshSemesters();
+      setSelectedSemester(res.data.target_semester);
+      setImportFile(null);
+      setSourceSemester('');
+      if (fileInputRef.current) fileInputRef.current.value = null;
+    } catch (err) {
+      setImportStatus(err.response?.data?.message || err.message);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -863,10 +1066,7 @@ function AdminCourses() {
     e.stopPropagation();
     setIsDragging(false);
     
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      handleFileUpload(files);
-    }
+    handleFileSelection(e.dataTransfer.files?.[0]);
   };
 
   const handleDragOver = (e) => {
@@ -977,18 +1177,17 @@ function AdminCourses() {
           marginBottom: '15px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>课程管理</h3>
+            <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>课程与学期管理</h3>
             <SemesterSelector />
           </div>
-          <button className="btn btn-primary" onClick={handleCreate}>+ 创建课程</button>
+          <button className="btn btn-primary" onClick={handleCreate} disabled={!selectedSemester}>+ 创建课程</button>
         </div>
       </div>
 
-      <CollegeEnglishPoolManager selectedSemester={selectedSemester} />
-      <LaborEducationPoolManager />
+      <SemesterManager showModal={showModal} closeModal={closeModal} />
 
       <div className="card">
-        <h3>数据导入</h3>
+        <h3>课程 JSON 导入</h3>
         <div 
           className="import-area" 
           style={{ 
@@ -1011,21 +1210,72 @@ function AdminCourses() {
           <input 
             type="file" 
             ref={fileInputRef}
-            accept=".json"
-            multiple
-            onChange={(e) => handleFileUpload(e.target.files)}
+            accept=".json,application/json"
+            onChange={(e) => handleFileSelection(e.target.files?.[0])}
             style={{ display: 'none' }}
           />
-          <div style={{ fontSize: '32px', marginBottom: '10px' }}>📂</div>
           <div style={{ fontWeight: '600', color: '#333', marginBottom: '5px' }}>
-            {isDragging ? '释放以上传文件' : '点击或拖拽上传课程数据文件'}
+            {isDragging ? '释放以选择文件' : (importFile ? importFile.name : '点击或拖拽选择课程 JSON')}
           </div>
-          <div style={{ fontSize: '13px', color: '#888' }}>支持 .json 格式，可多选文件</div>
+          <div style={{ fontSize: '13px', color: '#888' }}>
+            {sourceSemester ? `JSON 标识学期：${sourceSemester}` : '格式参考 data/courses 下的课程文件'}
+          </div>
         </div>
-        {importStatus && <p style={{ marginTop: '10px', color: '#666', fontSize: '14px' }}>{importStatus}</p>}
-        
+
+        {importFile && (
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+            <div className="form-group">
+              <label>目标学期</label>
+              <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+                <button type="button" onClick={() => setTargetMode('source')} style={{ border: 'none', padding: '8px 14px', background: targetMode === 'source' ? '#0067c0' : '#fff', color: targetMode === 'source' ? '#fff' : '#334155', cursor: 'pointer' }}>按 JSON 学期</button>
+                <button type="button" onClick={() => setTargetMode('other')} style={{ border: 'none', borderLeft: '1px solid #cbd5e1', padding: '8px 14px', background: targetMode === 'other' ? '#0067c0' : '#fff', color: targetMode === 'other' ? '#fff' : '#334155', cursor: 'pointer' }}>改用其他学年</button>
+              </div>
+            </div>
+
+            {targetMode === 'other' && (
+              <div className="form-group" style={{ maxWidth: '260px' }}>
+                <label>目标学年</label>
+                <input value={targetAcademicYear} onChange={event => setTargetAcademicYear(event.target.value)} placeholder="27-28" />
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              <div className="form-group">
+                <label>导入方式</label>
+                <select value={importMode} onChange={event => setImportMode(event.target.value)}>
+                  <option value="append">追加：保留未出现在 JSON 中的班级</option>
+                  <option value="overwrite">覆盖：删除未出现在 JSON 中的班级</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>实际目标学期</label>
+                <input value={targetSemester} disabled />
+              </div>
+              {!targetSemesterExists && targetSemester && (
+                <div className="form-group">
+                  <label>新学期第一周周一</label>
+                  <input type="date" value={importMonday} onChange={event => setImportMonday(event.target.value)} required />
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-primary" onClick={handleImport} disabled={importing || !targetSemester}>
+                {importing ? '导入中...' : (importMode === 'overwrite' ? '覆盖导入' : '追加导入')}
+              </button>
+              <span style={{ color: targetSemesterExists ? '#2f855a' : '#b45309', fontSize: '13px' }}>
+                {targetSemester
+                  ? (targetSemesterExists ? '目标学期已存在' : '目标学期不存在，将同时创建')
+                  : '请输入目标学年'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {importStatus && <p style={{ marginTop: '12px', color: importStatus.includes('完成') ? '#2f855a' : '#c62828', fontSize: '14px', whiteSpace: 'pre-line' }}>{importStatus}</p>}
+
         <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-          <button className="btn btn-danger" onClick={handleClearSemester}>清空学期</button>
+          <button className="btn btn-danger" onClick={handleClearSemester} disabled={!selectedSemester}>清空当前学期课程</button>
         </div>
       </div>
 
@@ -1131,6 +1381,9 @@ function AdminCourses() {
           </>
         )}
       </div>
+
+      <CollegeEnglishPoolManager selectedSemester={selectedSemester} />
+      <LaborEducationPoolManager />
     </div>
   );
 }

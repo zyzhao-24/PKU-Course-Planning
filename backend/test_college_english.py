@@ -22,7 +22,12 @@ from models import (  # noqa: E402
     User,
 )
 from program_calculator import CourseMoveManager, ProgramProgressCalculator  # noqa: E402
-from college_english import ENGLISH_LEVEL_VALUES, ENGLISH_MODULE_VALUES  # noqa: E402
+from college_english import (  # noqa: E402
+    ENGLISH_LEVEL_VALUES,
+    ENGLISH_MODULE_VALUES,
+    get_english_options,
+    load_default_pool_entries,
+)
 
 
 class CollegeEnglishProgressTest(unittest.TestCase):
@@ -175,7 +180,7 @@ class CollegeEnglishProgressTest(unittest.TestCase):
             ("A", {"A": 2, "B": 2}, 8.0),
             ("B", {"B": 2, "C": 1}, 6.0),
             ("C", {"C": 2}, 4.0),
-            ("EXEMPT", {}, 2.0),
+            ("C_PLUS", {"C_PLUS": 1}, 2.0),
         ]
 
         for level, modules, expected_credits in cases:
@@ -185,9 +190,29 @@ class CollegeEnglishProgressTest(unittest.TestCase):
                 self.assertTrue(english["qualified"])
                 self.assertEqual(english["credits"], expected_credits)
 
-    def test_c_plus_is_course_module_not_user_level(self):
-        self.assertNotIn("C_PLUS", ENGLISH_LEVEL_VALUES)
+    def test_c_plus_is_user_level_and_course_module(self):
+        self.assertIn("C_PLUS", ENGLISH_LEVEL_VALUES)
         self.assertIn("C_PLUS", ENGLISH_MODULE_VALUES)
+
+    def test_runtime_metadata_is_loaded_from_clean_resource(self):
+        options = get_english_options("C_PLUS")
+        c_plus = next(
+            level for level in options["levels"]
+            if level["value"] == "C_PLUS"
+        )
+        entries = load_default_pool_entries()
+
+        self.assertEqual(c_plus["required_credits"], 2)
+        self.assertEqual(options["requirements"]["C_PLUS"], [{"C_PLUS": 2}])
+        self.assertTrue(any(
+            entry["course_id"] == "03835780"
+            and entry["module"] == "C_PLUS"
+            for entry in entries
+        ))
+        self.assertTrue(all(
+            set(entry) == {"course_id", "course_name", "module"}
+            for entry in entries
+        ))
 
     def test_c_level_accepts_c_plus_path(self):
         _progress, english, _catch_all, _source_uuids = self.calculate_case("C", {"C": 1, "C_PLUS": 1})
@@ -214,14 +239,24 @@ class CollegeEnglishProgressTest(unittest.TestCase):
         self.assertTrue(all(not child["courses"] for child in english["children"]))
         self.assertIn(source_uuids[0], unassigned_uuids)
 
-    def test_exempt_college_english_has_no_consumed_courses(self):
-        _progress, english, _catch_all, _source_uuids = self.calculate_case("EXEMPT", {"C_PLUS": 1})
+    def test_c_plus_level_requires_c_plus_course(self):
+        _progress, english, _catch_all, source_uuids = self.calculate_case("C_PLUS", {"C_PLUS": 1})
 
         self.assertTrue(english["qualified"])
         self.assertEqual(english["credits"], 2.0)
+        self.assertEqual(english["course_count"], 1)
+        self.assertEqual(len(english["children"]), 1)
+        self.assertEqual(
+            english["english_requirement"]["selected_source_uuids"],
+            source_uuids,
+        )
+
+    def test_c_plus_level_without_course_is_not_qualified(self):
+        _progress, english, _catch_all, _source_uuids = self.calculate_case("C_PLUS", {})
+
+        self.assertFalse(english["qualified"])
+        self.assertEqual(english["credits"], 0.0)
         self.assertEqual(english["course_count"], 0)
-        self.assertEqual(english["children"], [])
-        self.assertEqual(english["english_requirement"]["selected_source_uuids"], [])
 
     def test_unset_level_is_not_qualified(self):
         _progress, english, _catch_all, _source_uuids = self.calculate_case(None, {"C": 2})

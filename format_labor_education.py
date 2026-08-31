@@ -15,7 +15,7 @@ from typing import Dict, Iterable, List, Tuple
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_INPUT = ROOT / "demo_data" / "labour" / "copyfrompdf.txt"
-DEFAULT_OUTPUT = ROOT / "backend" / "seed_data" / "labor_education_pool.json"
+DEFAULT_OUTPUT = ROOT / "data" / "labor_education_pool.json"
 COURSE_SYSTEMS = (
     "全校公选课",
     "专业必修",
@@ -134,4 +134,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

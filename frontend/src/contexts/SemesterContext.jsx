@@ -22,11 +22,12 @@ export function SemesterProvider({ children }) {
   const fetchSemesters = async () => {
     try {
       const res = await axios.get('/api/semesters');
-      setSemesters(res.data.semesters);
+      const nextSemesters = res.data.semesters || [];
+      setSemesters(nextSemesters);
       setSemesterConfigs(res.data.configs || {});
-      if (res.data.semesters.length > 0 && !selectedSemester) {
-        setSelectedSemester(res.data.semesters[0]);
-      }
+      setSelectedSemester(current => (
+        nextSemesters.includes(current) ? current : (nextSemesters[0] || '')
+      ));
     } catch (err) {
       // 401 错误是正常的（未登录），不显示错误
       if (err.response?.status !== 401) {

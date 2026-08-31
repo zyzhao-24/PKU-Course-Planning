@@ -10,7 +10,6 @@ import StudentProgress from './pages/StudentProgress';
 import AdminCourses from './pages/AdminCourses';
 import AdminPrograms from './pages/AdminPrograms';
 import AdminProgramEdit from './pages/AdminProgramEdit';
-import AdminSemesterConfig from './pages/AdminSemesterConfig';
 import AdminStudents from './pages/AdminStudents';
 import './App.css';
 
@@ -40,7 +39,7 @@ function AppShell() {
               <Route path="programs" element={<AdminPrograms />} />
               <Route path="programs/:id" element={<AdminProgramEdit />} />
               <Route path="students" element={<AdminStudents />} />
-              <Route path="semester-config" element={<AdminSemesterConfig />} />
+              <Route path="semester-config" element={<Navigate to="/admin/courses" replace />} />
             </Route>
           </Route>
           <Route path="/login" element={<Navigate to="/student/courses" replace />} />

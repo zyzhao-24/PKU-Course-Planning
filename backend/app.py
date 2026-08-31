@@ -45,6 +45,11 @@ from sqlalchemy import or_
 from program_api import program_bp
 
 from importer import import_courses_from_json
+from semester_utils import (
+    build_semester_name,
+    parse_first_week_monday,
+    parse_semester_name,
+)
 
 from auth_utils import (
     verify_pku_credentials,
@@ -745,7 +750,10 @@ def get_semesters(current_user):
         semester_configs[cfg.name] = {
             'academic_year': cfg.academic_year,
             'term': cfg.term,
-            'first_week_monday': cfg.first_week_monday.isoformat() if cfg.first_week_monday else None
+            'first_week_monday': cfg.first_week_monday.isoformat() if cfg.first_week_monday else None,
+            'description': cfg.description,
+            'is_active': cfg.is_active,
+            'course_count': cfg.courses.count(),
         }
     
     return jsonify({
@@ -758,16 +766,15 @@ def get_semesters(current_user):
 @admin_required
 def admin_create_semester(current_user):
     """管理员创建学期"""
-    data = request.json
-    name = data.get('name')
-    academic_year = data.get('academic_year')
-    term = data.get('term')
-    first_week_monday = data.get('first_week_monday')
-    
-    if not name or not academic_year or not term:
-        return jsonify({'success': False, 'message': '学期名称、学年和学期必填'}), 400
-    
+    data = request.json or {}
     try:
+        academic_year = str(data.get('academic_year') or '').strip()
+        term = int(data.get('term'))
+        name = build_semester_name(academic_year, term)
+        supplied_name = str(data.get('name') or '').strip()
+        if supplied_name and supplied_name != name:
+            return jsonify({'success': False, 'message': '学期名称必须与学年和学期序号一致'}), 400
+
         # 检查是否已存在
         existing = Semester.query.filter_by(name=name).first()
         if existing:
@@ -777,7 +784,11 @@ def admin_create_semester(current_user):
             name=name,
             academic_year=academic_year,
             term=term,
-            first_week_monday=date.fromisoformat(first_week_monday) if first_week_monday else None
+            first_week_monday=parse_first_week_monday(
+                data.get('first_week_monday'),
+                required=True,
+            ),
+            description=str(data.get('description') or '').strip() or None,
         )
         db.session.add(semester)
         db.session.commit()
@@ -792,6 +803,9 @@ def admin_create_semester(current_user):
                 'first_week_monday': semester.first_week_monday.isoformat() if semester.first_week_monday else None
             }
         })
+    except (TypeError, ValueError) as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -822,18 +836,21 @@ def admin_delete_semester(current_user, name):
 @admin_required
 def admin_update_semester(current_user, name):
     """管理员更新学期配置"""
-    data = request.json
-    first_week_monday = data.get('first_week_monday')
+    data = request.json or {}
     
     semester = Semester.query.filter_by(name=name).first()
     if not semester:
         return jsonify({'success': False, 'message': '学期不存在'}), 404
     
     try:
-        if first_week_monday:
-            semester.first_week_monday = date.fromisoformat(first_week_monday)
-        else:
-            semester.first_week_monday = None
+        parse_semester_name(name)
+        if 'first_week_monday' in data:
+            semester.first_week_monday = parse_first_week_monday(
+                data.get('first_week_monday'),
+                required=True,
+            )
+        if 'description' in data:
+            semester.description = str(data.get('description') or '').strip() or None
             
         db.session.commit()
         return jsonify({
@@ -841,9 +858,13 @@ def admin_update_semester(current_user, name):
             'message': '学期配置已更新',
             'semester': {
                 'name': semester.name,
-                'first_week_monday': semester.first_week_monday.isoformat() if semester.first_week_monday else None
+                'first_week_monday': semester.first_week_monday.isoformat() if semester.first_week_monday else None,
+                'description': semester.description,
             }
         })
+    except (TypeError, ValueError) as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1351,14 +1372,7 @@ def _ensure_semester_exists(semester_name, academic_year, term):
     semester = Semester.query.filter_by(name=semester_name).first()
     if semester:
         return semester
-    semester = Semester(
-        name=semester_name,
-        academic_year=academic_year,
-        term=term,
-        description='手动录入课程自动创建'
-    )
-    db.session.add(semester)
-    return semester
+    raise ValueError('学期不存在，请先在课程与学期管理中创建学期')
 
 
 def _find_course_in_semester(course_id, class_number, semester_name):
@@ -1420,83 +1434,6 @@ def _serialize_manual_transcript(transcript):
         'channel': transcript.channel,
         'gpa': calculate_course_gpa(transcript.score, transcript.score_type),
     }
-
-
-def _serialize_deleted_transcript(record):
-    return {
-        'record_id': record.record_id,
-        'is_manual': record.source == 'manual' or str(record.record_id or '').startswith('manual:'),
-        'uuid': record.uuid,
-        'course_id': record.course_id,
-        'class_number': record.class_number,
-        'academic_year': record.academic_year,
-        'term': record.term,
-        'semester': f'{record.academic_year}-{record.term}',
-        'course_name': record.course_name,
-        'score': record.score,
-        'score_type': record.score_type,
-        'credits': record.credits,
-        'channel': record.channel,
-        'source': record.source,
-        'deleted_at': record.deleted_at.isoformat() if record.deleted_at else None,
-        'gpa': calculate_course_gpa(record.score, record.score_type),
-    }
-
-
-def _deleted_transcript_from_transcript(transcript):
-    existing = DeletedTranscript.query.filter_by(
-        user_id=transcript.user_id,
-        record_id=transcript.record_id,
-    ).first()
-    if not existing:
-        existing = DeletedTranscript(
-            user_id=transcript.user_id,
-            record_id=transcript.record_id,
-        )
-        db.session.add(existing)
-
-    existing.uuid = transcript.uuid
-    existing.course_id = transcript.course_id
-    existing.class_number = transcript.class_number
-    existing.academic_year = transcript.academic_year
-    existing.term = transcript.term
-    existing.course_name = transcript.course_name
-    existing.score = transcript.score
-    existing.score_type = transcript.score_type
-    existing.credits = transcript.credits
-    existing.channel = transcript.channel
-    existing.source = 'manual' if str(transcript.record_id or '').startswith('manual:') else 'portal'
-    existing.deleted_at = datetime.utcnow()
-    return existing
-
-
-def _restore_deleted_transcript(deleted_record, current_user, data=None):
-    data = data or {}
-    existing = Transcript.query.filter_by(
-        user_id=current_user.id,
-        record_id=deleted_record.record_id,
-    ).first()
-    if existing:
-        db.session.delete(deleted_record)
-        return existing
-
-    transcript = Transcript(
-        record_id=deleted_record.record_id,
-        user_id=current_user.id,
-        uuid=deleted_record.uuid,
-        course_id=deleted_record.course_id,
-        class_number=deleted_record.class_number,
-        academic_year=deleted_record.academic_year,
-        term=deleted_record.term,
-        course_name=deleted_record.course_name,
-        score=str(data.get('score') or deleted_record.score),
-        score_type=data.get('score_type') or deleted_record.score_type,
-        credits=float(data.get('credits') if data.get('credits') not in (None, '') else deleted_record.credits),
-        channel=int(data.get('channel') if data.get('channel') not in (None, '') else deleted_record.channel),
-    )
-    db.session.add(transcript)
-    db.session.delete(deleted_record)
-    return transcript
 
 
 def _cleanup_orphan_course_assignment(user_id, source_uuid):
@@ -1592,22 +1529,6 @@ def student_create_manual_transcript(current_user):
     """手动录入一条已修课程成绩"""
     data = request.json or {}
     try:
-        deleted_record_id = str(data.get('deleted_record_id') or '').strip()
-        if deleted_record_id:
-            deleted_record = DeletedTranscript.query.filter_by(
-                user_id=current_user.id,
-                record_id=deleted_record_id,
-            ).first()
-            if not deleted_record:
-                return jsonify({'success': False, 'message': '已删除成绩记录不存在'}), 404
-            transcript = _restore_deleted_transcript(deleted_record, current_user, data)
-            db.session.commit()
-            return jsonify({
-                'success': True,
-                'transcript': _serialize_manual_transcript(transcript),
-                'restored': True,
-            })
-
         payload = _build_manual_transcript_payload(data, current_user)
         existing = Transcript.query.filter_by(
             user_id=current_user.id,
@@ -1629,37 +1550,6 @@ def student_create_manual_transcript(current_user):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/student/transcript/deleted', methods=['GET'])
-@student_required
-def student_get_deleted_transcripts(current_user):
-    """查询用户删除过的成绩，供添加入口恢复"""
-    q = request.args.get('q', '').strip().lower()
-    semester = request.args.get('semester', '').strip()
-    query = DeletedTranscript.query.filter_by(user_id=current_user.id)
-    if semester:
-        parts = semester.split('-')
-        if len(parts) >= 3:
-            query = query.filter(
-                DeletedTranscript.academic_year == '-'.join(parts[:2]),
-                DeletedTranscript.term == int(parts[2]),
-            )
-    records = query.order_by(
-        DeletedTranscript.academic_year.desc(),
-        DeletedTranscript.term.desc(),
-        DeletedTranscript.course_id,
-    ).all()
-    if q:
-        records = [
-            record for record in records
-            if q in (record.course_id or '').lower()
-            or q in (record.course_name or '').lower()
-        ]
-    return jsonify({
-        'success': True,
-        'records': [_serialize_deleted_transcript(record) for record in records[:100]],
-    })
 
 
 @app.route('/api/student/transcript/manual/<path:record_id>', methods=['PUT'])
@@ -1697,43 +1587,6 @@ def student_update_manual_transcript(record_id, current_user):
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
 
-
-def _delete_transcript_record(record_id, current_user):
-    transcript = Transcript.query.filter_by(
-        user_id=current_user.id,
-        record_id=record_id,
-    ).first()
-    if not transcript:
-        return jsonify({'success': False, 'message': '成绩记录不存在'}), 404
-
-    try:
-        source_uuid = transcript.uuid
-        deleted_record = _deleted_transcript_from_transcript(transcript)
-        db.session.delete(transcript)
-        db.session.flush()
-        _cleanup_orphan_course_assignment(current_user.id, source_uuid)
-        db.session.commit()
-        return jsonify({
-            'success': True,
-            'deleted': _serialize_deleted_transcript(deleted_record),
-        })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/student/transcript/manual/<path:record_id>', methods=['DELETE'])
-@student_required
-def student_delete_manual_transcript(record_id, current_user):
-    """删除一条手动录入的成绩，保留兼容旧前端路径"""
-    return _delete_transcript_record(record_id, current_user)
-
-
-@app.route('/api/student/transcript/<path:record_id>', methods=['DELETE'])
-@student_required
-def student_delete_transcript(record_id, current_user):
-    """删除任意一条主修/辅双成绩，删除后后续同步不会自动恢复"""
-    return _delete_transcript_record(record_id, current_user)
 
 @app.route('/api/student/schedule/pdf', methods=['POST'])
 @student_required
@@ -2109,7 +1962,7 @@ def student_sync_schedule(current_user):
 @app.route('/api/student/transcript/sync', methods=['POST'])
 @student_required
 def student_sync_transcript(current_user):
-    """同步成绩单（只同步到数据库，不自动选课）"""
+    """以门户最新成绩覆盖官方成绩，并在提交后触发自动选课。"""
     # 使用新的 get_student_scores 函数获取成绩单
     is_valid, portal_message = check_portal_login_status(current_user.id)
     if not is_valid:
@@ -2138,11 +1991,6 @@ def student_sync_transcript(current_user):
     dissertation_info = result.get('dissertation_transcripts', {})
 
     try:
-        deleted_record_ids = {
-            record.record_id
-            for record in DeletedTranscript.query.filter_by(user_id=current_user.id).all()
-        }
-
         # 1. 清空主修/辅双成绩单，但保留用户手动录入的成绩
         Transcript.query.filter_by(user_id=current_user.id).filter(
             ~Transcript.record_id.like('manual:%')
@@ -2196,8 +2044,6 @@ def student_sync_transcript(current_user):
                     
                     if not record_id or not course_id:
                         continue
-                    if record_id in deleted_record_ids:
-                        continue
                     
                     transcript = Transcript(
                         record_id=record_id,
@@ -2237,8 +2083,6 @@ def student_sync_transcript(current_user):
                     credits = float(course.get('credits', 0))
                     
                     if not record_id or not course_id:
-                        continue
-                    if record_id in deleted_record_ids:
                         continue
                     
                     transcript = Transcript(
@@ -2295,11 +2139,23 @@ def student_sync_transcript(current_user):
                     error_messages.append(f"转交流课程 {course.get('course_name', 'unknown')}: {str(e)}")
         
         db.session.commit()
+
+        try:
+            auto_select_result = {
+                'success': True,
+                **_auto_select_transcript_courses(current_user),
+            }
+        except Exception as auto_select_error:
+            auto_select_result = {
+                'success': False,
+                'message': f'自动选课失败: {auto_select_error}',
+            }
         
         return jsonify({
             'success': True,
             'message': f'成功同步 {synced_count} 条成绩记录',
-            'errors': error_messages if error_messages else None
+            'errors': error_messages if error_messages else None,
+            'auto_select': auto_select_result,
         })
         
     except Exception as e:
@@ -2307,9 +2163,7 @@ def student_sync_transcript(current_user):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-@app.route('/api/student/transcript/auto-select', methods=['POST'])
-@student_required
-def student_transcript_auto_select(current_user):
+def _auto_select_transcript_courses(current_user):
     """根据成绩单自动选课（只根据uuid匹配，使用课程库的学期，使用成绩单channel）"""
     try:
         # 1. 获取该学生的所有成绩单记录，提取所有uuid（排除W成绩）
@@ -2404,17 +2258,28 @@ def student_transcript_auto_select(current_user):
         
         db.session.commit()
         
-        return jsonify({
-            'success': True,
+        return {
             'message': f'自动选课完成：新增 {len(auto_selected_uuids)} 门，跳过 {skipped_count} 门，未找到 {not_found_count} 门',
             'auto_selected_uuids': auto_selected_uuids,
             'auto_selected_count': len(auto_selected_uuids),
             'skipped_count': skipped_count,
             'not_found_count': not_found_count
-        })
+        }
         
-    except Exception as e:
+    except Exception:
         db.session.rollback()
+        raise
+
+
+@app.route('/api/student/transcript/auto-select', methods=['POST'])
+@student_required
+def student_transcript_auto_select(current_user):
+    try:
+        return jsonify({
+            'success': True,
+            **_auto_select_transcript_courses(current_user),
+        })
+    except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -2493,15 +2358,20 @@ def admin_import_courses(current_user):
         try:
             os.close(temp_fd)
             file.save(temp_path)
-            success, message = import_courses_from_json(temp_path)
+            success, result = import_courses_from_json(
+                temp_path,
+                target_academic_year=request.form.get('target_academic_year'),
+                first_week_monday=request.form.get('first_week_monday'),
+                import_mode=request.form.get('import_mode', 'append'),
+            )
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
                 
         if success:
-            return jsonify({"success": True, "message": message})
+            return jsonify({"success": True, **result})
         else:
-            return jsonify({"success": False, "message": message}), 500
+            return jsonify({"success": False, "message": result["message"]}), 400
             
     # Fallback to file_path for backward compatibility
     data = request.json or {}
@@ -2513,12 +2383,17 @@ def admin_import_courses(current_user):
     if not os.path.exists(file_path):
         return jsonify({"success": False, "message": "File not found"}), 404
         
-    success, message = import_courses_from_json(file_path)
+    success, result = import_courses_from_json(
+        file_path,
+        target_academic_year=data.get('target_academic_year'),
+        first_week_monday=data.get('first_week_monday'),
+        import_mode=data.get('import_mode', 'append'),
+    )
     
     if success:
-        return jsonify({"success": True, "message": message})
+        return jsonify({"success": True, **result})
     else:
-        return jsonify({"success": False, "message": message}), 500
+        return jsonify({"success": False, "message": result["message"]}), 400
 
 
 @app.route('/api/admin/courses', methods=['POST'])
@@ -2589,17 +2464,6 @@ def admin_update_course(course_uuid, current_user):
         if not new_course_id:
             return jsonify({'success': False, 'message': 'course_id is required'}), 400
 
-        # Do not allow changing this row to another row's course number.
-        # Legacy duplicate numbers are left untouched; an edit that keeps its
-        # current number remains valid.
-        if new_course_id != old_course_id:
-            duplicate = Course.query.filter(
-                Course.course_id == new_course_id,
-                Course.uuid != course_uuid
-            ).first()
-            if duplicate:
-                return jsonify({'success': False, 'message': 'course_id already exists'}), 409
-
         # course_name and credits now live in CourseNameMapping.  Course.credits
         # is a read-only property, so never assign either normalized field to
         # the Course object itself.
@@ -2630,14 +2494,8 @@ def admin_update_course(course_uuid, current_user):
         course.teachers = data.get('teachers', course.teachers)
         course.remarks = data.get('remarks', course.remarks)
 
-        # Retain the old mapping while another course still references it.
-        if old_mapping and new_course_id != old_course_id:
-            other_courses = Course.query.filter(
-                Course.course_id == old_course_id,
-                Course.uuid != course_uuid
-            ).count()
-            if other_courses == 0:
-                db.session.delete(old_mapping)
+        # CourseNameMapping is permanent course-number master data. It is
+        # overwritten by later imports/edits, never removed with class rows.
         
         db.session.commit()
         return jsonify({'success': True, 'message': 'Course updated'})
@@ -2658,8 +2516,6 @@ def admin_delete_course(course_uuid, current_user):
         return jsonify({'success': False, 'message': 'Course not found'}), 404
         
     try:
-        # Also delete from selected courses
-        SelectedCourse.query.filter_by(course_uuid=course_uuid).delete()
         db.session.delete(course)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Course deleted'})
@@ -2680,7 +2536,6 @@ def admin_clear_all_courses(current_user):
         # Delete courses for the specified semester
         courses = Course.query.filter_by(semester=semester).all()
         for c in courses:
-            SelectedCourse.query.filter_by(course_uuid=c.uuid).delete()
             db.session.delete(c)
         
         db.session.commit()

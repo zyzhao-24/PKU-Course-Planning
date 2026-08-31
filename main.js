@@ -465,7 +465,7 @@ function startPythonAndCreateWindow() {
           click: () => mainWindow?.webContents.send('navigate', '#/admin/dashboard')
         },
         {
-          label: '课程管理',
+          label: '课程与学期管理',
           click: () => mainWindow?.webContents.send('navigate', '#/admin/courses')
         },
         {
@@ -476,10 +476,6 @@ function startPythonAndCreateWindow() {
           label: '设置',
           click: () => mainWindow?.webContents.send('navigate', '#/admin/students')
         },
-        {
-          label: '学期配置',
-          click: () => mainWindow?.webContents.send('navigate', '#/admin/semester-config')
-        }
       ]
     },
     {

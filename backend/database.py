@@ -9,6 +9,10 @@ db = SQLAlchemy(model_class=Base)
 def init_db(app):
     db.init_app(app)
     with app.app_context():
+        # Transcript deletion is no longer supported. Remove legacy tombstones
+        # so an upgraded database cannot retain or consult deletion history.
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE IF EXISTS deleted_transcripts")
         db.create_all()
         try:
             from college_english import seed_default_pool

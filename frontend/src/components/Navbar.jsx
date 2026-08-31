@@ -100,7 +100,7 @@ function Navbar({ selectedSemester }) {
                         培养方案编辑
                     </Link>
                     <Link 
-                        to="/semester-config" 
+                        to="/admin/courses"
                         className="dropdown-item" 
                         onClick={() => setShowMenu(false)}
                         style={{
@@ -113,7 +113,7 @@ function Navbar({ selectedSemester }) {
                         onMouseEnter={e => e.target.style.backgroundColor = '#f8f9fa'}
                         onMouseLeave={e => e.target.style.backgroundColor = 'white'}
                     >
-                        学期日期配置
+                        课程与学期管理
                     </Link>
                 </div>
             )}

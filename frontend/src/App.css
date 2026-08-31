@@ -7,9 +7,11 @@ body {
 }
 
 .container {
+  width: 100%;
   max-width: 1600px;
   margin: 0 auto;
   padding: 20px;
+  box-sizing: border-box;
 }
 
 h1 {
@@ -366,9 +368,41 @@ input[type="text"]:focus {
 
 /* Table */
 .table-container {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   border-radius: 8px;
   border: 1px solid #eee;
+}
+
+.table-container > table {
+  min-width: 680px;
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 8px;
+  }
+
+  .card {
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .navbar {
+    align-items: flex-start;
+  }
+
+  .navbar-links {
+    width: 100%;
+  }
+
+  .navbar-links a {
+    margin: 0;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
 }
 
 table {

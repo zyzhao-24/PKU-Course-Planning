@@ -30,7 +30,7 @@ const RainbowStyle = () => (
 );
 
 // 课程卡片组件 - 大色条显示
-const CourseCard = ({ course, onDeleteManual }) => {
+const CourseCard = ({ course }) => {
   const color = getScoreColor(course.score, course.score_type);
   const fillPercent = getFillPercent(course.score, course.score_type);
   const isPercent = course.score_type === 'Percentage';
@@ -92,22 +92,6 @@ const CourseCard = ({ course, onDeleteManual }) => {
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexShrink: 0 }}>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDeleteManual?.(course);
-            }}
-            style={{
-              position: 'relative',
-              zIndex: 20,
-              borderColor: 'rgba(255,255,255,0.75)',
-              backgroundColor: 'rgba(185, 28, 28, 0.9)'
-            }}
-          >
-            删除
-          </button>
           <div style={{ textAlign: 'center' }}>
             <div style={{ ...textStyle, fontSize: '22px', fontWeight: 'bold' }}>
               {course.score}
@@ -451,14 +435,17 @@ function StudentTranscript() {
         showModal('同步失败', '同步成绩单失败: ' + syncRes.data.message, 'error');
         return;
       }
-      const autoSelectRes = await axios.post('/api/student/transcript/auto-select');
-      if (autoSelectRes.data.success) {
-        showModal('同步完成', 
-          `成绩单: ${syncRes.data.message}\n自动选课: ${autoSelectRes.data.message}`, 
+      const autoSelect = syncRes.data.auto_select;
+      if (autoSelect?.success) {
+        showModal('同步完成',
+          `成绩单: ${syncRes.data.message}\n自动选课: ${autoSelect.message}`,
           'success');
         fetchTranscript();
       } else {
-        showModal('自动选课失败', autoSelectRes.data.message, 'error');
+        showModal('同步完成',
+          `成绩单: ${syncRes.data.message}\n${autoSelect?.message || '自动选课未执行'}`,
+          'error');
+        fetchTranscript();
       }
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message;
@@ -474,19 +461,6 @@ function StudentTranscript() {
       console.error(err);
     } finally {
       setSyncing(false);
-    }
-  };
-
-  const handleDeleteManualCourse = async (course) => {
-    if (!window.confirm(`确认删除“${course.course_name}”？北大接口同步的课程删除后，后续同步不会自动恢复。`)) return;
-
-    try {
-      await axios.delete(`/api/student/transcript/${encodeURIComponent(course.record_id)}`);
-      await axios.post('/api/student/progress/recalculate');
-      await fetchTranscript();
-      showModal('删除成功', '课程已删除，培养方案已重新计算。', 'success');
-    } catch (err) {
-      showModal('删除失败', err.response?.data?.message || err.message, 'error');
     }
   };
 
@@ -638,7 +612,7 @@ function StudentTranscript() {
                     )}
                     
                     {term.courses?.filter(c => c.channel === 0).map((course) => (
-                      <CourseCard key={course.record_id} course={course} onDeleteManual={handleDeleteManualCourse} />
+                      <CourseCard key={course.record_id} course={course} />
                     ))}
                     
                     {hasMinor && (
@@ -655,7 +629,7 @@ function StudentTranscript() {
                           辅双成绩
                         </div>
                         {term.courses.filter(c => c.channel === 1).map((course) => (
-                          <CourseCard key={course.record_id} course={course} onDeleteManual={handleDeleteManualCourse} />
+                          <CourseCard key={course.record_id} course={course} />
                         ))}
                       </>
                     )}

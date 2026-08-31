@@ -3,61 +3,42 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Dict, List
 
 from database import db
+from resource_paths import runtime_data_path
 
 
-ENGLISH_LEVELS = [
-    {
-        "value": "Y",
-        "label": "Y级",
-        "summary": "Y级课程 8 学分",
-    },
-    {
-        "value": "A",
-        "label": "A级",
-        "summary": "A级课程 4 学分 + B级课程 4 学分",
-    },
-    {
-        "value": "B",
-        "label": "B级",
-        "summary": "B级课程 4 学分 + C级课程 2 学分",
-    },
-    {
-        "value": "C",
-        "label": "C级",
-        "summary": "C级课程 4 学分，或 C级课程 2 学分 + C+级课程 2 学分",
-    },
-    {
-        "value": "EXEMPT",
-        "label": "免修",
-        "summary": "免修大学英语要求，自动计 2 学分",
-    },
-]
+METADATA_PATH = runtime_data_path("college_english.json")
+COURSE_POOL_PATH = runtime_data_path("college_english_pool.json")
+
+
+def _load_config() -> Dict[str, Any]:
+    config = json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+    if config.get("schema_version") != 1:
+        raise RuntimeError("Unsupported College English resource schema")
+
+    required_sections = {"levels", "modules", "requirements"}
+    missing = required_sections.difference(config)
+    if missing:
+        raise RuntimeError(
+            "College English resource is missing sections: "
+            + ", ".join(sorted(missing))
+        )
+    return config
+
+
+_CONFIG = _load_config()
+
+ENGLISH_LEVELS = list(_CONFIG["levels"])
 
 ENGLISH_LEVEL_VALUES = {level["value"] for level in ENGLISH_LEVELS}
 
-ENGLISH_MODULES = [
-    {"value": "Y", "label": "Y级课程"},
-    {"value": "A", "label": "A级课程"},
-    {"value": "B", "label": "B级课程"},
-    {"value": "C", "label": "C级课程"},
-    {"value": "C_PLUS", "label": "C+级课程"},
-]
+ENGLISH_MODULES = list(_CONFIG["modules"])
 
 ENGLISH_MODULE_VALUES = {module["value"] for module in ENGLISH_MODULES}
 
-ENGLISH_REQUIREMENT_ALTERNATIVES = {
-    "Y": [{"Y": 8.0}],
-    "A": [{"A": 4.0, "B": 4.0}],
-    "B": [{"B": 4.0, "C": 2.0}],
-    "C": [{"C": 4.0}, {"C": 2.0, "C_PLUS": 2.0}],
-    "EXEMPT": [{}],
-}
-
-DEFAULT_POOL_PATH = Path(__file__).resolve().parent / "seed_data" / "college_english_pool.json"
+ENGLISH_REQUIREMENT_ALTERNATIVES = dict(_CONFIG["requirements"])
 
 
 def get_english_options(current_level: str | None = None) -> Dict[str, Any]:
@@ -96,9 +77,10 @@ def serialize_pool_item(item) -> Dict[str, Any]:
 
 
 def load_default_pool_entries() -> List[Dict[str, Any]]:
-    if not DEFAULT_POOL_PATH.exists():
-        return []
-    return json.loads(DEFAULT_POOL_PATH.read_text(encoding="utf-8"))
+    entries = json.loads(COURSE_POOL_PATH.read_text(encoding="utf-8"))
+    if not isinstance(entries, list):
+        raise RuntimeError("College English course pool must be a JSON array")
+    return [dict(entry) for entry in entries]
 
 
 def seed_default_pool(reset: bool = False) -> int:

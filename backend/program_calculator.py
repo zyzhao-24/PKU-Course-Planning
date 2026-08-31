@@ -472,25 +472,6 @@ class CollegeEnglishCalculator:
             )
             return base
 
-        if level == 'EXEMPT':
-            base.update({
-                'credits': 2.0,
-                'course_count': 0,
-                'qualified': True,
-            })
-            base['english_requirement'] = self._metadata(
-                level=level,
-                configured=True,
-                qualified=True,
-                selected_requirements={},
-                module_status={},
-                selected_courses=[],
-                matched_courses=list(matches.values()),
-                matched_source_uuids=matched_source_uuids,
-                message='当前设置为不适用/免修，大学英语要求视为已满足。',
-            )
-            return base
-
         attempts = [
             self._attempt_requirement(matches, requirements)
             for requirements in ENGLISH_REQUIREMENT_ALTERNATIVES.get(level, [])

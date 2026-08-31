@@ -5,9 +5,10 @@ Default input:
     demo_data/english/copy_from_elective.txt
 
 Default output:
-    demo_data/english/college_english_pool_from_elective.json
+    data/college_english_pool.json
 
-The output shape matches backend/seed_data/college_english_pool.json.
+The generated course list is source data. Runtime metadata lives in
+backend/resources/college_english.json.
 This helper is intentionally kept at the project root and is not included in
 the packaged app.
 """
@@ -23,7 +24,7 @@ from typing import Dict, Iterable, List, Tuple
 
 
 DEFAULT_INPUT = Path("demo_data/english/copy_from_elective.txt")
-DEFAULT_OUTPUT = Path("demo_data/english/college_english_pool_from_elective.json")
+DEFAULT_OUTPUT = Path("data/college_english_pool.json")
 
 MODULE_ORDER = {
     "Y": 0,
@@ -98,7 +99,7 @@ def iter_course_rows(text: str) -> Iterable[Tuple[int, List[str]]]:
             yield line_number, fields
 
 
-def parse_entries(text: str, notes: str) -> Tuple[List[Dict], Dict[str, int], List[str]]:
+def parse_entries(text: str) -> Tuple[List[Dict], Dict[str, int], List[str]]:
     seen: Dict[Tuple[str, str], Dict] = {}
     skipped: List[str] = []
     stats = {
@@ -137,8 +138,6 @@ def parse_entries(text: str, notes: str) -> Tuple[List[Dict], Dict[str, int], Li
             "course_id": course_id,
             "course_name": course_name,
             "module": module,
-            "active": True,
-            "notes": notes,
             "_line_number": line_number,
         }
 
@@ -152,12 +151,9 @@ def parse_entries(text: str, notes: str) -> Tuple[List[Dict], Dict[str, int], Li
         ),
     )
 
-    for order_index, entry in enumerate(entries):
-        entry["order_index"] = order_index
+    for entry in entries:
         entry.pop("_line_number", None)
-        if "alternate_names" in entry:
-            names = "; ".join(entry.pop("alternate_names"))
-            entry["notes"] = f"{entry['notes']} Alternate names seen: {names}"
+        entry.pop("alternate_names", None)
 
     return entries, stats, skipped
 
@@ -191,11 +187,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_OUTPUT,
         help=f"JSON output path. Use '-' for stdout. Default: {DEFAULT_OUTPUT}",
     )
-    parser.add_argument(
-        "--notes",
-        default="Parsed from copied elective page.",
-        help="Notes value written to every generated pool item.",
-    )
     return parser
 
 
@@ -208,7 +199,7 @@ def main() -> int:
         print(f"Input file not found: {input_path}", file=sys.stderr)
         return 2
 
-    entries, stats, skipped = parse_entries(read_text(input_path), args.notes)
+    entries, stats, skipped = parse_entries(read_text(input_path))
     write_json(entries, output_path)
 
     destination = "stdout" if output_path is None else str(output_path)
