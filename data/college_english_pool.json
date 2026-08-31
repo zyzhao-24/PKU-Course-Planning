@@ -1,0 +1,202 @@
+[
+  {
+    "course_id": "03835401",
+    "course_name": "基础英语阅读（一）",
+    "module": "Y"
+  },
+  {
+    "course_id": "03835403",
+    "course_name": "初级英语听力（一）",
+    "module": "Y"
+  },
+  {
+    "course_id": "03835543",
+    "course_name": "英语阅读",
+    "module": "A"
+  },
+  {
+    "course_id": "03835552",
+    "course_name": "英语听说",
+    "module": "A"
+  },
+  {
+    "course_id": "03835800",
+    "course_name": "实用基础英语写作",
+    "module": "A"
+  },
+  {
+    "course_id": "03835260",
+    "course_name": "英语名著与电影",
+    "module": "B"
+  },
+  {
+    "course_id": "03835270",
+    "course_name": "英语词汇与英美文化",
+    "module": "B"
+  },
+  {
+    "course_id": "03835460",
+    "course_name": "英美戏剧和电影",
+    "module": "B"
+  },
+  {
+    "course_id": "03835551",
+    "course_name": "高级英语听说",
+    "module": "B"
+  },
+  {
+    "course_id": "03835660",
+    "course_name": "影视中的英美文化",
+    "module": "B"
+  },
+  {
+    "course_id": "03835680",
+    "course_name": "当代英美纪录片中的中国文化和社会",
+    "module": "B"
+  },
+  {
+    "course_id": "03835730",
+    "course_name": "美国文化概览",
+    "module": "B"
+  },
+  {
+    "course_id": "03835760",
+    "course_name": "高级英语阅读",
+    "module": "B"
+  },
+  {
+    "course_id": "03835850",
+    "course_name": "希腊罗马神话赏析",
+    "module": "B"
+  },
+  {
+    "course_id": "03835880",
+    "course_name": "英美报刊选读",
+    "module": "B"
+  },
+  {
+    "course_id": "03835890",
+    "course_name": "汉英翻译理论与实践",
+    "module": "B"
+  },
+  {
+    "course_id": "03835900",
+    "course_name": "高级英语写作",
+    "module": "B"
+  },
+  {
+    "course_id": "03835967",
+    "course_name": "医学英语",
+    "module": "B"
+  },
+  {
+    "course_id": "03835978",
+    "course_name": "美国英语语音与听说词汇",
+    "module": "B"
+  },
+  {
+    "course_id": "03835984",
+    "course_name": "英语创意表达-TED演讲视听说",
+    "module": "B"
+  },
+  {
+    "course_id": "03835998",
+    "course_name": "博雅英语阅读",
+    "module": "B"
+  },
+  {
+    "course_id": "03835130",
+    "course_name": "学术英语听说",
+    "module": "C"
+  },
+  {
+    "course_id": "03835360",
+    "course_name": "英汉口译",
+    "module": "C"
+  },
+  {
+    "course_id": "03835530",
+    "course_name": "美国重要历史文献选读",
+    "module": "C"
+  },
+  {
+    "course_id": "03835544",
+    "course_name": "学术英语写作",
+    "module": "C"
+  },
+  {
+    "course_id": "03835650",
+    "course_name": "北京和上海: 中国历史上的双城记",
+    "module": "C"
+  },
+  {
+    "course_id": "03835670",
+    "course_name": "英语非虚构作品中的近当代中国社会与文化",
+    "module": "C"
+  },
+  {
+    "course_id": "03835710",
+    "course_name": "语言、文化与交际",
+    "module": "C"
+  },
+  {
+    "course_id": "03835740",
+    "course_name": "分析性英语写作",
+    "module": "C"
+  },
+  {
+    "course_id": "03835770",
+    "course_name": "商务沟通与表达",
+    "module": "C"
+  },
+  {
+    "course_id": "03835860",
+    "course_name": "英语公众演讲",
+    "module": "C"
+  },
+  {
+    "course_id": "03835968",
+    "course_name": "跨文化交际",
+    "module": "C"
+  },
+  {
+    "course_id": "03835969",
+    "course_name": "英文学术文献阅读",
+    "module": "C"
+  },
+  {
+    "course_id": "03835975",
+    "course_name": "19世纪英国女性作家经典作品选读",
+    "module": "C"
+  },
+  {
+    "course_id": "03835976",
+    "course_name": "西方古典文化：影视与文本",
+    "module": "C"
+  },
+  {
+    "course_id": "03835979",
+    "course_name": "英国浪漫主义诗歌",
+    "module": "C"
+  },
+  {
+    "course_id": "03835986",
+    "course_name": "英语散文选读：19世纪维多利亚时期至20世纪",
+    "module": "C"
+  },
+  {
+    "course_id": "03835987",
+    "course_name": "英美短篇小说文本分析与鉴赏",
+    "module": "C"
+  },
+  {
+    "course_id": "03835997",
+    "course_name": "语言、技术与社会",
+    "module": "C"
+  },
+  {
+    "course_id": "03835780",
+    "course_name": "批判性思维与学术写作",
+    "module": "C_PLUS"
+  }
+]
