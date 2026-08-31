@@ -2570,50 +2570,80 @@ def admin_create_course(current_user):
 @admin_required
 def admin_update_course(course_uuid, current_user):
     """管理员编辑课程"""
-    data = request.json
+    data = request.json or {}
     course = db.session.get(Course, course_uuid)
     if not course:
         return jsonify({'success': False, 'message': 'Course not found'}), 404
         
     try:
-        # 如果课程号或课程名称变更，更新映射
-        new_course_id = data.get('course_id', course.course_id)
-        new_course_name = data.get('course_name')
-        
-        if new_course_name or (new_course_id and new_course_id != course.course_id):
-            # 删除旧映射（如果不再有其他课程使用）
-            old_mapping = CourseNameMapping.query.filter_by(course_id=course.course_id).first()
-            if old_mapping and new_course_id != course.course_id:
-                other_courses = Course.query.filter(
-                    Course.course_id == course.course_id,
-                    Course.uuid != course_uuid
-                ).count()
-                if other_courses == 0:
-                    db.session.delete(old_mapping)
-            
-            # 创建或更新新映射
-            mapping = CourseNameMapping.query.filter_by(course_id=new_course_id).first()
-            if not mapping:
-                mapping = CourseNameMapping(
-                    course_id=new_course_id,
-                    course_name=new_course_name or old_mapping.course_name if old_mapping else '未知课程'
-                )
-                db.session.add(mapping)
-            elif new_course_name:
-                mapping.course_name = new_course_name
-        
+        # UUID identifies the row and must not be changed by an edit request.
+        payload_uuid = data.get('uuid')
+        if payload_uuid is not None and str(payload_uuid) != course.uuid:
+            return jsonify({'success': False, 'message': 'UUID cannot be modified'}), 400
+
+        old_course_id = course.course_id
+        new_course_id = data.get('course_id', old_course_id)
+        if new_course_id is None:
+            new_course_id = old_course_id
+        new_course_id = str(new_course_id).strip()
+        if not new_course_id:
+            return jsonify({'success': False, 'message': 'course_id is required'}), 400
+
+        # Do not allow changing this row to another row's course number.
+        # Legacy duplicate numbers are left untouched; an edit that keeps its
+        # current number remains valid.
+        if new_course_id != old_course_id:
+            duplicate = Course.query.filter(
+                Course.course_id == new_course_id,
+                Course.uuid != course_uuid
+            ).first()
+            if duplicate:
+                return jsonify({'success': False, 'message': 'course_id already exists'}), 409
+
+        # course_name and credits now live in CourseNameMapping.  Course.credits
+        # is a read-only property, so never assign either normalized field to
+        # the Course object itself.
+        old_mapping = CourseNameMapping.query.filter_by(course_id=old_course_id).first()
+        mapping = CourseNameMapping.query.filter_by(course_id=new_course_id).first()
+        if not mapping:
+            mapping = CourseNameMapping(
+                course_id=new_course_id,
+                course_name=(data.get('course_name') or
+                             (old_mapping.course_name if old_mapping else '未知课程')),
+                credits=float(data.get(
+                    'credits', old_mapping.credits if old_mapping else 0
+                ))
+            )
+            db.session.add(mapping)
+        else:
+            if data.get('course_name'):
+                mapping.course_name = data['course_name']
+            if 'credits' in data:
+                mapping.credits = float(data['credits'])
+
         course.course_id = new_course_id
         course.course_type = data.get('course_type', course.course_type)
         course.department_code = data.get('department_code', course.department_code)
         course.class_number = data.get('class_number', course.class_number)
-        course.credits = float(data.get('credits', course.credits))
         course.semester = data.get('semester', course.semester)
         course.class_times = data.get('class_times', course.class_times)
         course.teachers = data.get('teachers', course.teachers)
         course.remarks = data.get('remarks', course.remarks)
+
+        # Retain the old mapping while another course still references it.
+        if old_mapping and new_course_id != old_course_id:
+            other_courses = Course.query.filter(
+                Course.course_id == old_course_id,
+                Course.uuid != course_uuid
+            ).count()
+            if other_courses == 0:
+                db.session.delete(old_mapping)
         
         db.session.commit()
         return jsonify({'success': True, 'message': 'Course updated'})
+    except (TypeError, ValueError):
+        db.session.rollback()
+        return jsonify({'success': False, 'message': 'credits must be a number'}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500

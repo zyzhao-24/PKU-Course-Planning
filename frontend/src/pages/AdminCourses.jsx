@@ -7,7 +7,7 @@ import SemesterSelector from '../components/SemesterSelector';
 
 // 课程时段编辑器组件
 function ClassTimeEditor({ value = [], onChange }) {
-  const [times, setTimes] = useState(value);
+  const [times, setTimes] = useState(value || []);
 
   useEffect(() => {
     setTimes(value || []);
@@ -19,7 +19,10 @@ function ClassTimeEditor({ value = [], onChange }) {
   };
 
   const addTime = () => {
-    handleChange([...times, { day: 1, start_period: 1, end_period: 2, week_range: '1-16', week_type: 0 }]);
+    // Leave the day and periods for the user, while defaulting the common
+    // semester range and full-week selection.
+    // This button is inside CourseForm and must not submit the form.
+    handleChange([...times, { day: '', start_period: '', end_period: '', week_range: '1-16', week_type: 0 }]);
   };
 
   const removeTime = (index) => {
@@ -38,19 +41,22 @@ function ClassTimeEditor({ value = [], onChange }) {
         <div key={index} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginBottom: '10px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '6px' }}>
           <div>
             <label style={{ fontSize: '11px' }}>星期</label>
-            <select value={time.day} onChange={(e) => updateTime(index, 'day', parseInt(e.target.value))}>
+            <select value={time.day ?? ''} onChange={(e) => updateTime(index, 'day', e.target.value ? parseInt(e.target.value) : '')}>
+              <option value="">请选择</option>
               {[1,2,3,4,5,6,7].map(d => <option key={d} value={d}>{WEEK_DAYS[d]}</option>)}
             </select>
           </div>
           <div>
             <label style={{ fontSize: '11px' }}>开始节</label>
-            <select value={time.start_period} onChange={(e) => updateTime(index, 'start_period', parseInt(e.target.value))}>
+            <select value={time.start_period ?? ''} onChange={(e) => updateTime(index, 'start_period', e.target.value ? parseInt(e.target.value) : '')}>
+              <option value="">请选择</option>
               {Array.from({length: 12}, (_, i) => i + 1).map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
           <div>
             <label style={{ fontSize: '11px' }}>结束节</label>
-            <select value={time.end_period} onChange={(e) => updateTime(index, 'end_period', parseInt(e.target.value))}>
+            <select value={time.end_period ?? ''} onChange={(e) => updateTime(index, 'end_period', e.target.value ? parseInt(e.target.value) : '')}>
+              <option value="">请选择</option>
               {Array.from({length: 12}, (_, i) => i + 1).map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
@@ -65,18 +71,19 @@ function ClassTimeEditor({ value = [], onChange }) {
           </div>
           <div>
             <label style={{ fontSize: '11px' }}>单双周</label>
-            <select value={time.week_type || 0} onChange={(e) => updateTime(index, 'week_type', parseInt(e.target.value))}>
+            <select value={time.week_type ?? ''} onChange={(e) => updateTime(index, 'week_type', e.target.value === '' ? '' : parseInt(e.target.value))}>
+              <option value="">请选择</option>
               <option value={0}>全周</option>
               <option value={1}>单周</option>
               <option value={2}>双周</option>
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button className="btn btn-danger btn-sm" onClick={() => removeTime(index)}>删除</button>
+            <button type="button" className="btn btn-danger btn-sm" onClick={() => removeTime(index)}>删除</button>
           </div>
         </div>
       ))}
-      <button className="btn btn-secondary btn-sm" onClick={addTime}>+ 添加上课时段</button>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={addTime}>+ 添加上课时段</button>
     </div>
   );
 }
