@@ -1197,7 +1197,7 @@ function AdminCourses() {
             {isDragging ? '释放以选择文件' : (importFile ? importFile.name : '点击或拖拽选择课程 JSON')}
           </div>
           <div style={{ fontSize: '13px', color: '#888' }}>
-            {sourceSemester ? `JSON 标识学期：${sourceSemester}` : '格式参考 data/courses 下的课程文件'}
+            {sourceSemester ? `JSON 标识学期：${sourceSemester}` : '请选择由课程数据工具生成的 JSON 文件'}
           </div>
         </div>
 

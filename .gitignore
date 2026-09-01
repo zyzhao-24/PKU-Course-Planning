@@ -8,3 +8,5 @@
 **cert**
 course_planning.db
 demo_data
+scripts/course_data/raw/
+scripts/course_data/courses/

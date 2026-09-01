@@ -13,7 +13,7 @@
 
 1. 运行 `CoursePlanningSystem Setup 1.0.0.exe` 并完成安装。
 2. 启动 CoursePlanningSystem。应用会自动创建本地用户和本地数据库，无需注册。
-3. 进入“课程与学期”，创建学期并导入对应的课程 JSON。示例数据位于 `data/courses/`可以直接导入。
+3. 进入“课程与学期”，创建学期并导入符合系统格式的课程 JSON。
 4. 进入“方案管理”，选择“主修”或“辅修/双学位”类型，然后导入从`门户-教务部业务-培养方案-查看教学计划`下载的培养方案 `.xls` 文件。
 5. 进入“设置”，选择自己的主修方案、辅修/双学位方案和大学英语分级。
 6. 在“成绩单”中手动维护成绩，或在需要同步时连接北京大学账号；随后可在“培养方案”页面重新计算完成进度。
@@ -67,7 +67,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 打开“课程与学期”：
 
 1. 选择已有学期，或者填写学年、学期和第一周周一来创建新学期。
-2. 导入 `data/courses/` 下对应学期的课程 JSON。
+2. 导入对应学期的课程 JSON。需要自行生成数据时，可使用 `scripts/course_data/` 下的抓取和格式化工具。
 3. 已有学期可以选择“追加”或“覆盖”导入。
 4. 如有调课、停课或调休安排，可在同一页面维护教学日历调整。
 
@@ -143,9 +143,8 @@ SQLite（course_planning.db）
 - `main.js`：Electron 主进程，负责 Flask 生命周期、窗口、托盘、日志和应用设置。
 - `preload.js`：Electron 主进程与 React 渲染进程之间的受限桥接层。
 - `app-settings.json`：开发环境的窗口关闭行为等桌面设置。
-- `data/courses/`：可导入的课程 JSON。
-- `data/raw/`：课程数据的原始版本。
 - `data/college_english_pool.json`、`data/labor_education_pool.json`：通用要求的默认课程池。
+- `scripts/course_data/`：课程数据抓取和格式化工具；生成的 `raw/` 与 `courses/` 目录不会提交到 Git。
 
 ## 测试
 

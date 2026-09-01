@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-FormatRawData.py - Format raw course data into standardized structure.
+format_courses.py - Convert raw course data into the application's import format.
 
-Read raw JSON files from the 'data/raw' directory, process and convert
+Read raw JSON files from the sibling 'raw' directory, process and convert
 the course data into a standardized format, and save the formatted data
-to the 'data/courses' directory.
+to the sibling 'courses' directory.
 
 The output format follows the course data structure defined in requirements.md:
 {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''
-Crawler.py - Fetch raw course data from the server asynchronously.
+crawl_courses.py - Fetch raw PKU course data asynchronously.
 '''
 
 import asyncio
