@@ -54,6 +54,7 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
   const [captcha, setCaptcha] = useState('');
   const [smsCode, setSmsCode] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  const [smsCountdown, setSmsCountdown] = useState(0);
   const [requirements, setRequirements] = useState({});
   const [captchaImage, setCaptchaImage] = useState(null);
   const [qrImage, setQrImage] = useState(null);
@@ -73,6 +74,12 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (smsCountdown <= 0) return undefined;
+    const timer = setTimeout(() => setSmsCountdown(value => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [smsCountdown]);
+
   function stopPolling() {
     activeQrSessionRef.current = null;
     if (pollTimerRef.current) {
@@ -89,6 +96,7 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
     setCaptcha('');
     setSmsCode('');
     setOtpCode('');
+    setSmsCountdown(0);
     setRequirements({});
     setCaptchaImage(null);
     setQrImage(null);
@@ -166,8 +174,7 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
     }
   }
 
-  const checkAuth = async (event) => {
-    event.preventDefault();
+  const loadAuthRequirements = async () => {
     if (!username.trim() || !sessionId) return;
     setLoading(true);
     setError('');
@@ -178,20 +185,34 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
       });
       setRequirements(res.data);
       if (res.data.requires_captcha) {
-        await fetchCaptcha();
+        if (!(await fetchCaptcha())) return false;
       }
-      setStep('password');
+      return true;
     } catch (err) {
       setError(err.response?.data?.message || err.message);
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
+  const checkAuth = async (event) => {
+    event.preventDefault();
+    if (await loadAuthRequirements()) setStep('password');
+  };
+
   const fetchCaptcha = async () => {
-    const res = await axios.get(`/api/portal/captcha?session_id=${sessionId}`);
-    if (res.data.success) {
-      setCaptchaImage(res.data.captcha_image);
+    try {
+      const res = await axios.get(`/api/portal/captcha?session_id=${sessionId}`);
+      if (res.data.success) {
+        setCaptchaImage(res.data.captcha_image);
+        setCaptcha('');
+        return true;
+      }
+      return false;
+    } catch (err) {
+      setError(err.response?.data?.message || err.message);
+      return false;
     }
   };
 
@@ -199,7 +220,12 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
     setLoading(true);
     setError('');
     try {
-      await axios.post('/api/portal/sms', { session_id: sessionId });
+      const res = await axios.post('/api/portal/sms', { session_id: sessionId });
+      setRequirements(current => ({
+        ...current,
+        mobile_mask: res.data.mobile_mask || current.mobile_mask,
+      }));
+      setSmsCountdown(60);
     } catch (err) {
       setError(err.response?.data?.message || err.message);
     } finally {
@@ -221,6 +247,22 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
 
   const submitPassword = async (event) => {
     event.preventDefault();
+    if (requirements.requires_bind_otp) {
+      setError('请先绑定手机令牌，再重新检查绑定状态');
+      return;
+    }
+    if (requirements.requires_captcha && !captcha.trim()) {
+      setError('请输入验证码');
+      return;
+    }
+    if (requirements.requires_sms && !smsCode.trim()) {
+      setError('请输入短信验证码');
+      return;
+    }
+    if (requirements.requires_otp && !otpCode.trim()) {
+      setError('请输入手机令牌');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -238,6 +280,18 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
     } catch (err) {
       const data = err.response?.data;
       setError(data?.message || err.message);
+      if (data) {
+        setRequirements(current => ({
+          ...current,
+          ...Object.fromEntries([
+            'requires_captcha',
+            'requires_sms',
+            'requires_otp',
+            'requires_bind_otp',
+            'mobile_mask',
+          ].filter(key => data[key] !== undefined).map(key => [key, data[key]])),
+        }));
+      }
       if (data?.captcha_image) {
         setCaptchaImage(data.captcha_image);
         setCaptcha('');
@@ -348,6 +402,11 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
                     style={{ height: '40px', cursor: 'pointer', borderRadius: '4px' }}
                   />
                 )}
+                {!captchaImage && (
+                  <button type="button" className="btn btn-secondary" onClick={fetchCaptcha} disabled={loading}>
+                    获取验证码
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -357,8 +416,8 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
               <label>短信验证码 {requirements.mobile_mask && `(${requirements.mobile_mask})`}</label>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <input value={smsCode} onChange={(e) => setSmsCode(e.target.value)} />
-                <button type="button" className="btn btn-secondary" onClick={sendSms} disabled={loading}>
-                  发送
+                <button type="button" className="btn btn-secondary" onClick={sendSms} disabled={loading || smsCountdown > 0}>
+                  {smsCountdown > 0 ? `${smsCountdown}s` : '发送'}
                 </button>
               </div>
             </div>
@@ -366,12 +425,41 @@ function PortalConnectModal({ isOpen, onCancel, onConnected }) {
 
           {requirements.requires_otp && (
             <div className="form-group">
-              <label>OTP</label>
+              <label>手机令牌</label>
               <input value={otpCode} onChange={(e) => setOtpCode(e.target.value)} />
             </div>
           )}
 
-          <button className="btn btn-primary" disabled={loading || !password} style={{ width: '100%' }}>
+          {requirements.requires_bind_otp && (
+            <div className="status-bar status-error" style={{ display: 'block', marginBottom: '15px' }}>
+              <div>该账号尚未绑定手机令牌。</div>
+              <div style={{ marginTop: '8px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <a
+                  href="https://iaaa.pku.edu.cn/iaaa/resources/help/otpHelp.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  查看绑定说明
+                </a>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={loadAuthRequirements} disabled={loading}>
+                  重新检查
+                </button>
+              </div>
+            </div>
+          )}
+
+          <button
+            className="btn btn-primary"
+            disabled={
+              loading ||
+              !password ||
+              requirements.requires_bind_otp ||
+              (requirements.requires_captcha && !captcha.trim()) ||
+              (requirements.requires_sms && !smsCode.trim()) ||
+              (requirements.requires_otp && !otpCode.trim())
+            }
+            style={{ width: '100%' }}
+          >
             {loading ? '连接中...' : '连接并继续同步'}
           </button>
 

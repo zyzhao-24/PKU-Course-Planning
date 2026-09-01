@@ -1,12 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from '../utils/axios';
 import { useSemester } from '../contexts/SemesterContext';
-import { DEPARTMENT_CODE_MAP, formatClassTimes, WEEK_DAYS, checkTimeConflict } from '../utils';
+import { DEPARTMENT_CODE_MAP, formatClassTimes, WEEK_DAYS } from '../utils';
+import {
+  buildFixedBusyIndex,
+  findCandidateCourseConflictDetails,
+  findCandidateCourseConflictOwners,
+} from '../utils/scheduleConflicts';
 import Modal from '../components/Modal';
+import ConflictConfirmation from '../components/ConflictConfirmation';
 import SemesterSelector from '../components/SemesterSelector';
 
 function StudentCourses() {
-  const { selectedSemester } = useSemester();
+  const { selectedSemester, semesterConfigs } = useSemester();
   const [courses, setCourses] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -124,7 +130,7 @@ function StudentCourses() {
           uuid: d.course_uuid,
           course_name: d.course_name,
           class_times: d.class_times,
-          week_range: d.week_range,
+          exam_info: d.exam_info,
           course_id: d.course_id,
           department_code: d.department_code
       }));
@@ -144,21 +150,15 @@ function StudentCourses() {
     }
   };
 
+  const fixedBusyIndex = useMemo(() => buildFixedBusyIndex(selectedCoursesDetails, {
+      semester: selectedSemester,
+      firstWeekMonday: semesterConfigs[selectedSemester]?.first_week_monday || null,
+    }), [selectedCoursesDetails, selectedSemester, semesterConfigs]);
+
   useEffect(() => {
-    const newConflicts = new Set();
-    if (selectedCoursesDetails.length > 0 && courses.length > 0) {
-        courses.forEach(course => {
-            if (selectedCourseUuids.has(course.uuid)) return;
-            for (const selected of selectedCoursesDetails) {
-                if (checkTimeConflict(course, selected)) {
-                    newConflicts.add(course.uuid);
-                    break; 
-                }
-            }
-        });
-    }
-    setConflicts(newConflicts);
-  }, [courses, selectedCoursesDetails, selectedCourseUuids]);
+    const candidates = courses.filter(course => !selectedCourseUuids.has(course.uuid));
+    setConflicts(findCandidateCourseConflictOwners(candidates, fixedBusyIndex));
+  }, [courses, selectedCourseUuids, fixedBusyIndex]);
 
   const fetchCourses = async () => {
     if (!selectedSemester) return;
@@ -200,6 +200,25 @@ function StudentCourses() {
     } catch (error) {
       alert('选课失败: ' + (error.response?.data?.message || error.message));
     }
+  };
+
+  const requestSelectCourse = (course, channel) => {
+    if (!conflicts.has(course.uuid)) {
+      handleSelectCourse(course.uuid, channel);
+      return;
+    }
+
+    const details = findCandidateCourseConflictDetails(course, fixedBusyIndex);
+    showModal(
+      '确认时间冲突',
+      <ConflictConfirmation course={course} channel={channel} details={details} />,
+      async () => {
+        closeModal();
+        await handleSelectCourse(course.uuid, channel);
+      },
+      true,
+      'btn btn-warning',
+    );
   };
 
   const handleDropCourse = async (courseUuid) => {
@@ -350,19 +369,19 @@ function StudentCourses() {
                       <div style={{ display: 'flex', gap: '4px', minWidth: '110px' }}>
                         <button 
                           className={`btn btn-sm ${conflicts.has(course.uuid) ? 'btn-warning' : 'btn-primary'}`} 
-                          onClick={() => handleSelectCourse(course.uuid, 0)} 
+                          onClick={() => requestSelectCourse(course, 0)}
                           title={conflicts.has(course.uuid) ? "时间冲突" : "主修选课"}
                           style={{ flex: 1, padding: '4px 8px', fontSize: '12px' }}
                         >
-                          {conflicts.has(course.uuid) ? "冲突（主）" : "主修"}
+                          主修
                         </button>
                         <button 
                           className={`btn btn-sm ${conflicts.has(course.uuid) ? 'btn-warning' : 'btn-secondary'}`} 
-                          onClick={() => handleSelectCourse(course.uuid, 1)} 
+                          onClick={() => requestSelectCourse(course, 1)}
                           title={conflicts.has(course.uuid) ? "时间冲突" : "辅双选课"}
                           style={{ flex: 1, padding: '4px 8px', fontSize: '12px' }}
                         >
-                          {conflicts.has(course.uuid) ? "冲突（双）" : "辅双"}
+                          辅双
                         </button>
                       </div>
                     )}

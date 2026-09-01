@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from database import db  # noqa: E402
-from importer import import_courses_from_json  # noqa: E402
+from importer import get_import_policy, import_courses_from_json  # noqa: E402
 from models import (  # noqa: E402
     Course,
     CourseNameMapping,
@@ -86,15 +86,32 @@ class CourseImporterTest(unittest.TestCase):
             self.course("00100514", 2),
         ])
 
-        result = self.import_catalog(path, first_week_monday="2026-09-07")
+        result = self.import_catalog(
+            path,
+            first_week_monday="2026-09-07",
+            import_mode="overwrite",
+        )
         courses = Course.query.order_by(Course.class_number).all()
 
         self.assertTrue(result["semester_created"])
+        self.assertEqual(result["requested_import_mode"], "overwrite")
+        self.assertEqual(result["effective_import_mode"], "append")
         self.assertEqual(result["target_semester"], "26-27-1")
         self.assertEqual(len(courses), 2)
         self.assertTrue(all(course.uuid.startswith("BZ2627100100514") for course in courses))
         self.assertEqual(len({course.uuid for course in courses}), 2)
         self.assertEqual(CourseNameMapping.query.count(), 1)
+
+    def test_import_policy_reports_identity_and_master_data_rules(self):
+        policy = get_import_policy()
+
+        self.assertEqual(
+            policy["match_key"],
+            ["target_semester", "course_id", "class_number"],
+        )
+        self.assertEqual(policy["course_master_key"], "course_id")
+        self.assertEqual(policy["course_master_policy"], "upsert_only_never_delete")
+        self.assertEqual(policy["new_semester_mode"], "append")
 
     def test_source_semester_uses_supplied_uuid(self):
         supplied_uuid = "BZ2627100100514_15551"

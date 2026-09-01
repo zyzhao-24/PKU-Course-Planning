@@ -10,6 +10,7 @@ function StudentLayout() {
     { path: '/student/transcript', label: '成绩单' },
     { path: '/student/progress', label: '培养方案' },
     { path: '/admin/courses', label: '课程与学期' },
+    { path: '/admin/general-requirements', label: '通用规定' },
     { path: '/admin/programs', label: '方案管理' },
     { path: '/admin/students', label: '设置' },
   ];

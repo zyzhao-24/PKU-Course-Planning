@@ -1,3 +1,5 @@
+import { coursesHaveClassConflict } from './utils/scheduleConflicts';
+
 // =============== 课程相关常量及工具 ==================
 
 export const DEPARTMENT_CODE_MAP = {
@@ -145,28 +147,7 @@ export const getWeeksFromClassTime = (time) => {
 
 // 新版冲突检测：使用每个时段自己的 week_range
 export const checkTimeConflict = (course1, course2) => {
-    const times1 = course1.class_times;
-    const times2 = course2.class_times;
-    if (!times1 || !times2) return false;
-    
-    for (const t1 of times1) {
-        for (const t2 of times2) {
-            if (t1.day === t2.day) {
-                // 使用每个时段自己的 week_range
-                const w1 = getWeeksFromClassTime(t1);
-                const w2 = getWeeksFromClassTime(t2);
-                
-                const commonWeeks = [...w1].filter(x => w2.has(x));
-                if (commonWeeks.length > 0) {
-                    // Check period overlap
-                    if (Math.max(t1.start_period, t2.start_period) <= Math.min(t1.end_period, t2.end_period)) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    return false;
+    return coursesHaveClassConflict(course1, course2);
 };
 
 // 根据学期第一周周一日期计算某周的日期

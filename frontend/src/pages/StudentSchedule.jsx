@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from '../utils/axios';
 import { useSemester } from '../contexts/SemesterContext';
 import CourseTable from '../components/CourseTable';
-import { formatClassTimes, DEPARTMENT_CODE_MAP, WEEK_DAYS, formatExamInfo, getWeekDate, parseWeeksFromRange } from '../utils';
+import { formatClassTimes, DEPARTMENT_CODE_MAP, WEEK_DAYS, formatExamInfo } from '../utils';
+import { findFixedScheduleConflictOwners } from '../utils/scheduleConflicts';
 import Modal from '../components/Modal';
 import PortalConnectModal from '../components/PortalConnectModal';
 import SemesterSelector from '../components/SemesterSelector';
@@ -139,47 +140,10 @@ function StudentSchedule() {
   };
 
   const checkConflicts = (courses) => {
-    const newConflicts = new Set();
-    for (let i = 0; i < courses.length; i++) {
-      for (let j = i + 1; j < courses.length; j++) {
-        if (hasConflict(courses[i], courses[j])) {
-          newConflicts.add(courses[i].uuid);
-          newConflicts.add(courses[j].uuid);
-        }
-      }
-    }
-    setConflicts(newConflicts);
-  };
-
-  const hasConflict = (c1, c2) => {
-    // 检查每个时段的冲突
-    for (const t1 of c1.class_times || []) {
-      for (const t2 of c2.class_times || []) {
-        if (t1.day === t2.day) {
-          // 检查节次是否重叠
-          const start1 = t1.start_period;
-          const end1 = t1.end_period;
-          const start2 = t2.start_period;
-          const end2 = t2.end_period;
-          if (Math.max(start1, start2) <= Math.min(end1, end2)) {
-            // 检查周次是否重叠（使用 parseWeeksFromRange 正确处理 week_type）
-            const weeks1 = parseWeeksFromRange(t1.week_range, t1.week_type);
-            const weeks2 = parseWeeksFromRange(t2.week_range, t2.week_type);
-
-            // 如果任一时段没有周次信息（空集合），说明该时段无上课时间，跳过
-            if (weeks1.size === 0 || weeks2.size === 0) {
-              continue;
-            }
-
-            const commonWeeks = [...weeks1].filter(w => weeks2.has(w));
-            if (commonWeeks.length > 0) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    return false;
+    setConflicts(findFixedScheduleConflictOwners(courses, {
+      semester: selectedSemester,
+      firstWeekMonday,
+    }));
   };
 
   const handleClearAll = () => {
@@ -362,18 +326,8 @@ function StudentSchedule() {
           <CourseTable 
             courses={courseDetails} 
             semester={selectedSemester} 
-            conflicts={conflicts} 
             firstWeekMonday={firstWeekMonday}
             onWeekChange={handleWeekChange}
-            examInfos={courseDetails
-              .filter(c => c.exam_info && c.exam_info.date)
-              .map(c => ({
-                courseId: c.course_id,
-                date: c.exam_info.date,
-                period: c.exam_info.period,
-                location: c.exam_info.location
-              }))
-            }
           />
         )}
       </div>

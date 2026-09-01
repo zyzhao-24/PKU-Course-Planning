@@ -1,9 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from '../utils/axios';
 import Modal from '../components/Modal';
 import { useSemester } from '../contexts/SemesterContext';
-import { getFilterDescription, getCourseListRulesDescription, getNodeRulesDescription, DEPARTMENT_CODE_MAP, formatClassTimes, checkTimeConflict } from '../utils';
+import { getFilterDescription, getCourseListRulesDescription, getNodeRulesDescription, DEPARTMENT_CODE_MAP, formatClassTimes } from '../utils';
+import {
+  buildFixedBusyIndex,
+  findCandidateCourseConflictDetails,
+  findCandidateCourseConflictOwners,
+} from '../utils/scheduleConflicts';
+import ConflictConfirmation from '../components/ConflictConfirmation';
+import { sortSemestersDescending } from '../utils/semesters';
 
 function CourseLookupInput({ value, onChange, onSelect, semester, placeholder }) {
   const [focused, setFocused] = useState(false);
@@ -194,8 +201,19 @@ function CourseLookupInput({ value, onChange, onSelect, semester, placeholder })
   );
 }
 
+const getDescriptionExpansionKey = (type, id) => `${type}:${id}`;
+
+const collectExpandableNodeIds = (items, ids = new Set()) => {
+  items?.forEach(item => {
+    if (item.type === 'course_list') return;
+    ids.add(item.id);
+    collectExpandableNodeIds(item.children, ids);
+  });
+  return ids;
+};
+
 function StudentProgress() {
-  const { selectedSemester } = useSemester();
+  const { selectedSemester, semesterConfigs } = useSemester();
   const [progressData, setProgressData] = useState({ major: null, minor: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -290,7 +308,7 @@ function StudentProgress() {
   const fetchSemesters = async () => {
     try {
       const res = await axios.get('/api/semesters');
-      setSemesters(res.data.semesters || []);
+      setSemesters(sortSemestersDescending(res.data.semesters || []));
     } catch (err) {
       console.error('获取学期列表失败', err);
     }
@@ -327,7 +345,7 @@ function StudentProgress() {
           uuid: d.course_uuid,
           course_name: d.course_name,
           class_times: d.class_times,
-          week_range: d.week_range,
+          exam_info: d.exam_info,
           course_id: d.course_id,
           department_code: d.department_code
       }));
@@ -382,17 +400,11 @@ function StudentProgress() {
         
         // 默认展开所有节点
         const allIds = new Set();
-        const collectIds = (nodes) => {
-          nodes?.forEach(node => {
-            allIds.add(node.id);
-            if (node.children) collectIds(node.children);
-          });
-        };
         if (progress?.major?.categories) {
-          progress.major.categories.forEach(cat => collectIds(cat.nodes));
+          progress.major.categories.forEach(cat => collectExpandableNodeIds(cat.nodes, allIds));
         }
         if (progress?.minor?.categories) {
-          progress.minor.categories.forEach(cat => collectIds(cat.nodes));
+          progress.minor.categories.forEach(cat => collectExpandableNodeIds(cat.nodes, allIds));
         }
         setExpandedNodes(allIds);
       } else {
@@ -597,14 +609,8 @@ function StudentProgress() {
 
   const expandAll = () => {
     const allIds = new Set();
-    const collectIds = (nodes) => {
-      nodes?.forEach(node => {
-        allIds.add(node.id);
-        if (node.children) collectIds(node.children);
-      });
-    };
     const currentProgram = activeTab === 'major' ? progressData.major : progressData.minor;
-    currentProgram?.categories?.forEach(cat => collectIds(cat.nodes));
+    currentProgram?.categories?.forEach(cat => collectExpandableNodeIds(cat.nodes, allIds));
     setExpandedNodes(allIds);
   };
 
@@ -640,13 +646,14 @@ function StudentProgress() {
     );
   };
 
-  const toggleDescription = (id) => {
+  const toggleDescription = (type, id) => {
+    const key = getDescriptionExpansionKey(type, id);
     setExpandedDescriptions(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
+      if (newSet.has(key)) {
+        newSet.delete(key);
       } else {
-        newSet.add(id);
+        newSet.add(key);
       }
       return newSet;
     });
@@ -831,21 +838,17 @@ function StudentProgress() {
   };
 
   // 当模态框中的课程列表变化时，计算冲突
+  const fixedBusyIndex = useMemo(() => buildFixedBusyIndex(selectedCoursesDetails, {
+      semester: selectedSemester,
+      firstWeekMonday: semesterConfigs[selectedSemester]?.first_week_monday || null,
+    }), [selectedCoursesDetails, selectedSemester, semesterConfigs]);
+
   useEffect(() => {
-    const newConflicts = new Set();
-    if (selectedCoursesDetails.length > 0 && courseListModal.matchingCourses.length > 0) {
-      courseListModal.matchingCourses.forEach(course => {
-        if (selectedCourseUuids.has(course.uuid)) return;
-        for (const selected of selectedCoursesDetails) {
-          if (checkTimeConflict(course, selected)) {
-            newConflicts.add(course.uuid);
-            break;
-          }
-        }
-      });
-    }
-    setModalConflicts(newConflicts);
-  }, [courseListModal.matchingCourses, selectedCoursesDetails, selectedCourseUuids]);
+    const candidates = courseListModal.matchingCourses.filter(
+      course => !selectedCourseUuids.has(course.uuid),
+    );
+    setModalConflicts(findCandidateCourseConflictOwners(candidates, fixedBusyIndex));
+  }, [courseListModal.matchingCourses, selectedCourseUuids, fixedBusyIndex]);
 
   const handleSelectFromModal = async (courseUuid) => {
     try {
@@ -869,9 +872,32 @@ function StudentProgress() {
     }
   };
 
+  const requestSelectFromModal = (course) => {
+    if (!modalConflicts.has(course.uuid)) {
+      handleSelectFromModal(course.uuid);
+      return;
+    }
+
+    const details = findCandidateCourseConflictDetails(course, fixedBusyIndex);
+    showModal(
+      '确认时间冲突',
+      <ConflictConfirmation
+        course={course}
+        channel={courseListModal.channel}
+        details={details}
+      />,
+      async () => {
+        setModal(current => ({ ...current, isOpen: false }));
+        await handleSelectFromModal(course.uuid);
+      },
+      true,
+    );
+  };
+
   const renderCourseList = (item, depth = 0) => {
     const isQualified = item.qualified;
-    const showDesc = expandedDescriptions.has(item.id);
+    const descriptionKey = getDescriptionExpansionKey('course_list', item.id);
+    const showDesc = expandedDescriptions.has(descriptionKey);
     
     return (
       <div key={item.id} style={{
@@ -920,7 +946,7 @@ function StudentProgress() {
               </button>
             )}
             <button
-              onClick={(e) => { e.stopPropagation(); toggleDescription(item.id); }}
+              onClick={(e) => { e.stopPropagation(); toggleDescription('course_list', item.id); }}
               style={{
                 fontSize: '11px',
                 padding: '2px 8px',
@@ -1009,7 +1035,8 @@ function StudentProgress() {
   const renderNode = (node, depth = 0) => {
     const isExpanded = expandedNodes.has(node.id);
     const hasChildren = node.children && node.children.length > 0;
-    const showDesc = expandedDescriptions.has(node.id);
+    const descriptionKey = getDescriptionExpansionKey('node', node.id);
+    const showDesc = expandedDescriptions.has(descriptionKey);
     
     return (
       <div key={node.id}>
@@ -1042,7 +1069,7 @@ function StudentProgress() {
             <div style={{ textAlign: 'right' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
-                  onClick={(e) => { e.stopPropagation(); toggleDescription(node.id); }}
+                  onClick={(e) => { e.stopPropagation(); toggleDescription('node', node.id); }}
                   style={{
                     fontSize: '11px',
                     padding: '2px 8px',
@@ -1540,11 +1567,11 @@ function StudentProgress() {
         {modal.content}
       </Modal>
 
-      {/* 标题栏 */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <h3 style={{ margin: 0 }}>培养方案完成情况</h3>
-          <div style={{ display: 'flex', gap: '10px' }}>
+      {/* 标题栏与方案切换 */}
+      <div className="card general-requirements__navigation">
+        <div className="progress-page__header">
+          <h2 className="general-requirements__title">培养方案完成情况</h2>
+          <div className="progress-page__actions">
             <button className="btn btn-secondary btn-sm" onClick={openManualTranscriptModal}>添加已修课程</button>
             <button className="btn btn-secondary btn-sm" onClick={expandAll}>展开全部</button>
             <button className="btn btn-secondary btn-sm" onClick={collapseAll}>收起全部</button>
@@ -1553,52 +1580,38 @@ function StudentProgress() {
             </button>
           </div>
         </div>
+        {(hasMajor || hasMinor) && (
+          <div className="general-requirements__tabs" role="tablist" aria-label="培养方案类别">
+            {hasMajor && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('major')}
+                className={`general-requirements__tab${activeTab === 'major' ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={activeTab === 'major'}
+              >
+                主修方案
+                {progressData.major?.is_qualified && ' ✓'}
+              </button>
+            )}
+            {hasMinor && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('minor')}
+                className={`general-requirements__tab${activeTab === 'minor' ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={activeTab === 'minor'}
+              >
+                辅修/双学位（双专业）方案
+                {progressData.minor?.is_qualified && ' ✓'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Tab切换 */}
-      {(hasMajor || hasMinor) && (
-        <div style={{ display: 'flex', borderBottom: '2px solid #e0e0e0', marginBottom: '20px' }}>
-          {hasMajor && (
-            <button
-              onClick={() => setActiveTab('major')}
-              style={{
-                padding: '12px 24px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                borderBottom: activeTab === 'major' ? '3px solid #0067c0' : 'none',
-                color: activeTab === 'major' ? '#0067c0' : '#666',
-                fontWeight: activeTab === 'major' ? 'bold' : 'normal',
-                cursor: 'pointer',
-                fontSize: '15px'
-              }}
-            >
-              主修方案
-              {progressData.major?.is_qualified && ' ✓'}
-            </button>
-          )}
-          {hasMinor && (
-            <button
-              onClick={() => setActiveTab('minor')}
-              style={{
-                padding: '12px 24px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                borderBottom: activeTab === 'minor' ? '3px solid #0067c0' : 'none',
-                color: activeTab === 'minor' ? '#0067c0' : '#666',
-                fontWeight: activeTab === 'minor' ? 'bold' : 'normal',
-                cursor: 'pointer',
-                fontSize: '15px'
-              }}
-            >
-              辅修/双学位（双专业）方案
-              {progressData.minor?.is_qualified && ' ✓'}
-            </button>
-          )}
-        </div>
-      )}
-
       {/* 内容区域 */}
-      <div className="card">
+      <div className="card" role="tabpanel">
         {activeTab === 'major' && renderProgram(progressData.major)}
         {activeTab === 'minor' && renderProgram(progressData.minor)}
       </div>
@@ -1711,7 +1724,7 @@ function StudentProgress() {
                           ) : (
                             <button
                               className={`btn btn-sm ${modalConflicts.has(course.uuid) ? 'btn-warning' : courseListModal.channel === 0 ? 'btn-primary' : 'btn-secondary'}`}
-                              onClick={() => handleSelectFromModal(course.uuid)}
+                              onClick={() => requestSelectFromModal(course)}
                               title={modalConflicts.has(course.uuid) ? "时间冲突" : courseListModal.channel === 0 ? "主修选课" : "辅双选课"}
                             >
                               {modalConflicts.has(course.uuid) 

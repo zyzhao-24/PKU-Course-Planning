@@ -274,63 +274,14 @@ function AdminPrograms() {
         </div>
       </Modal>
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h3 style={{ margin: 0 }}>培养方案管理</h3>
+      <div className="card management-import-card">
+        <div className="management-import-card__header">
+          <h2>培养方案管理</h2>
           <button className="btn btn-primary" onClick={() => setShowForm(true)}>创建方案</button>
         </div>
-      </div>
-
-      {showForm && (
-        <div className="card">
-          <h3>创建培养方案</h3>
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label>方案名称</label>
-              <input 
-                placeholder="如：计算机科学与技术 2024级" 
-                value={formData.name} 
-                onChange={e => setFormData({...formData, name: e.target.value})} 
-                required 
-              />
-            </div>
-            <div className="form-group">
-              <label>年级</label>
-              <input 
-                type="number" 
-                value={formData.year} 
-                onChange={e => setFormData({...formData, year: parseInt(e.target.value)})} 
-              />
-            </div>
-            <div className="form-group">
-              <label>院系</label>
-              <input 
-                placeholder="如：信息科学技术学院" 
-                value={formData.dept} 
-                onChange={e => setFormData({...formData, dept: e.target.value})} 
-              />
-            </div>
-            <div className="form-group">
-              <label>类型</label>
-              <select 
-                value={formData.channel} 
-                onChange={e => setFormData({...formData, channel: parseInt(e.target.value)})}
-              >
-                <option value={0}>主修</option>
-                <option value={1}>辅修/双学位（双专业）</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button type="submit" className="btn btn-primary">保存</button>
-              <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>取消</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      <div className="card">
-        <h3>数据导入</h3>
-        <div
+        <section className="management-import-card__section" aria-labelledby="program-data-import-title">
+          <h3 id="program-data-import-title" className="management-import-card__section-title">数据导入</h3>
+          <div
           aria-live="polite"
           style={{
             maxHeight: showImportWarning ? '44px' : 0,
@@ -361,7 +312,7 @@ function AdminPrograms() {
           className="import-area"
           style={{
             border: isDragging ? '2px dashed #0067c0' : '2px dashed #e0e0e0',
-            borderRadius: '8px',
+            borderRadius: '0 0 8px 8px',
             padding: '30px 20px',
             textAlign: 'center',
             backgroundColor: isDragging ? '#f0f7ff' : '#fafafa',
@@ -419,12 +370,60 @@ function AdminPrograms() {
           </div>
           <div style={{ fontSize: '13px', color: '#888' }}>支持 .xls 格式，可多选文件</div>
         </div>
-        {importStatus && (
+          {importStatus && (
           <p style={{ marginTop: '10px', color: '#666', fontSize: '14px', whiteSpace: 'pre-line' }}>
             {importStatus}
           </p>
         )}
+        </section>
       </div>
+
+      {showForm && (
+        <div className="card">
+          <h3>创建培养方案</h3>
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label>方案名称</label>
+              <input
+                placeholder="如：计算机科学与技术 2024级"
+                value={formData.name}
+                onChange={e => setFormData({...formData, name: e.target.value})}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>年级</label>
+              <input
+                type="number"
+                value={formData.year}
+                onChange={e => setFormData({...formData, year: parseInt(e.target.value)})}
+              />
+            </div>
+            <div className="form-group">
+              <label>院系</label>
+              <input
+                placeholder="如：信息科学技术学院"
+                value={formData.dept}
+                onChange={e => setFormData({...formData, dept: e.target.value})}
+              />
+            </div>
+            <div className="form-group">
+              <label>类型</label>
+              <select
+                value={formData.channel}
+                onChange={e => setFormData({...formData, channel: parseInt(e.target.value)})}
+              >
+                <option value={0}>主修</option>
+                <option value={1}>辅修/双学位（双专业）</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="submit" className="btn btn-primary">保存</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>取消</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="card">
         <h3>方案列表</h3>

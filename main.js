@@ -469,6 +469,10 @@ function startPythonAndCreateWindow() {
           click: () => mainWindow?.webContents.send('navigate', '#/admin/courses')
         },
         {
+          label: '培养方案通用规定',
+          click: () => mainWindow?.webContents.send('navigate', '#/admin/general-requirements')
+        },
+        {
           label: '培养方案管理',
           click: () => mainWindow?.webContents.send('navigate', '#/admin/programs')
         },

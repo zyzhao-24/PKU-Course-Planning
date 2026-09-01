@@ -1193,6 +1193,30 @@ def _optional_program_id(value, label):
         raise ValueError(f'{label}无效')
 
 
+@program_bp.route('/admin/general-requirements/policy', methods=['GET'])
+@admin_required
+def get_general_requirements_policy(current_user):
+    """报告独立于学期课程目录的培养方案通用规定。"""
+    return jsonify({
+        'success': True,
+        'scope': 'global_program_requirements',
+        'semester_bound': False,
+        'college_english': {
+            'course_pool_scope': 'global',
+            'student_setting': 'english_level',
+            'match_fields': ['course_id', 'course_name'],
+            'options': get_english_options(),
+        },
+        'labor_education': {
+            'course_pool_scope': 'global',
+            'applies_to_program_year_from': 2021,
+            'minimum_hours': 32,
+            'also_counts_in_original_course_system': True,
+            'match_field': 'course_id',
+        },
+    })
+
+
 # ==================== 大学英语设置 API ====================
 
 @program_bp.route('/college-english/options', methods=['GET'])

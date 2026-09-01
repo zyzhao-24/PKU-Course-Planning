@@ -8,6 +8,7 @@ import StudentSchedule from './pages/StudentSchedule';
 import StudentTranscript from './pages/StudentTranscript';
 import StudentProgress from './pages/StudentProgress';
 import AdminCourses from './pages/AdminCourses';
+import AdminGeneralRequirements from './pages/AdminGeneralRequirements';
 import AdminPrograms from './pages/AdminPrograms';
 import AdminProgramEdit from './pages/AdminProgramEdit';
 import AdminStudents from './pages/AdminStudents';
@@ -36,6 +37,7 @@ function AppShell() {
               <Route index element={<Navigate to="courses" replace />} />
               <Route path="dashboard" element={<Navigate to="/admin/courses" replace />} />
               <Route path="courses" element={<AdminCourses />} />
+              <Route path="general-requirements" element={<AdminGeneralRequirements />} />
               <Route path="programs" element={<AdminPrograms />} />
               <Route path="programs/:id" element={<AdminProgramEdit />} />
               <Route path="students" element={<AdminStudents />} />

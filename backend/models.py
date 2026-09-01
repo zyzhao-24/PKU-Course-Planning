@@ -289,7 +289,6 @@ class Semester(db.Model):
     term = db.Column(db.Integer, nullable=False)  # 学期：1, 2, 3
     name = db.Column(db.String(20), nullable=False, unique=True, index=True)  # e.g. "25-26-1"
     first_week_monday = db.Column(db.Date, nullable=True)  # 第1周周一的日期
-    description = db.Column(db.String(200), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     

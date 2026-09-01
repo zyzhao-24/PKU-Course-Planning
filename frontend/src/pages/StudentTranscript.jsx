@@ -483,6 +483,50 @@ function StudentTranscript() {
     return credits;
   };
 
+  const academicYearGroups = Object.entries(
+    transcripts.reduce((groups, term) => {
+      const year = term.academic_year || '未知学年';
+      if (!groups[year]) groups[year] = [];
+      groups[year].push(term);
+      return groups;
+    }, {})
+  ).sort(([yearA], [yearB]) => yearB.localeCompare(yearA));
+
+  const calculateAcademicYearStats = (terms) => {
+    const regularCourses = terms.flatMap(term => term.courses || []);
+    const exchangeCourses = terms.flatMap(term => (
+      (term.exchange_courses || []).map(course => ({
+        ...course,
+        score: 'P',
+        score_type: 'P/NP'
+      }))
+    ));
+    const coursesWithGPA = regularCourses.filter(course => (
+      course.gpa !== null &&
+      course.gpa !== undefined &&
+      course.gpa !== '' &&
+      Number.isFinite(Number(course.gpa)) &&
+      Number(course.credits) > 0
+    ));
+    const gpaCredits = coursesWithGPA.reduce(
+      (sum, course) => sum + Number(course.credits),
+      0
+    );
+    const academicYearGPA = gpaCredits > 0
+      ? (
+          coursesWithGPA.reduce(
+            (sum, course) => sum + Number(course.gpa) * Number(course.credits),
+            0
+          ) / gpaCredits
+        ).toFixed(3)
+      : '-.---';
+    return {
+      gpa: academicYearGPA,
+      credits: calculateSetCredits([...regularCourses, ...exchangeCourses]),
+      courseCount: regularCourses.length + exchangeCourses.length,
+    };
+  };
+
   if (loading) {
     return <div className="card">加载中...</div>;
   }
@@ -564,10 +608,27 @@ function StudentTranscript() {
         </div>
       ) : (
         <>
-          {transcripts.map((term) => {
+          {academicYearGroups.map(([academicYear, yearTerms]) => {
+            const yearStats = calculateAcademicYearStats(yearTerms);
+            return (
+              <section key={academicYear} style={{ marginBottom: '24px' }}>
+                <div className="card" style={{ borderLeft: '4px solid #0067c0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>{academicYear}学年</h3>
+                    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', color: '#475569', fontSize: '14px' }}>
+                      <span>学年绩点 <strong style={{ color: '#1f2937' }}>{yearStats.gpa}</strong></span>
+                      <span>获得学分 <strong style={{ color: '#1f2937' }}>{yearStats.credits.toFixed(1)}</strong></span>
+                      <span>课程数 <strong style={{ color: '#1f2937' }}>{yearStats.courseCount}</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                {yearTerms.map((term) => {
+            const majorCourses = term.courses?.filter(c => c.channel === 0) || [];
+            const hasMajor = majorCourses.length > 0;
             const hasMinor = term.courses?.some(c => c.channel === 1);
             const hasExchange = term.exchange_courses?.length > 0;
-            const needCategoryLabels = hasMinor || hasExchange;
+            const showSourceLabels = hasMinor || hasExchange;
             
             return (
               <div key={`${term.academic_year}-${term.term}`} className="card">
@@ -597,8 +658,7 @@ function StudentTranscript() {
 
                 {expandedTerms[`${term.academic_year}-${term.term}`] && (
                   <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {/* 只有存在非主修课程时才显示分类标签 */}
-                    {needCategoryLabels && (
+                    {showSourceLabels && hasMajor && (
                       <div style={{
                         fontSize: '14px',
                         fontWeight: 'bold',
@@ -611,7 +671,7 @@ function StudentTranscript() {
                       </div>
                     )}
                     
-                    {term.courses?.filter(c => c.channel === 0).map((course) => (
+                    {majorCourses.map((course) => (
                       <CourseCard key={course.record_id} course={course} />
                     ))}
                     
@@ -655,6 +715,9 @@ function StudentTranscript() {
                   </div>
                 )}
               </div>
+            );
+                })}
+              </section>
             );
           })}
           

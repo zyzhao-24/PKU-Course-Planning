@@ -44,7 +44,7 @@ from sqlalchemy import or_
 # 导入培养方案新系统
 from program_api import program_bp
 
-from importer import import_courses_from_json
+from importer import get_import_policy, import_courses_from_json
 from semester_utils import (
     build_semester_name,
     parse_first_week_monday,
@@ -69,6 +69,7 @@ from auth_utils import (
     create_login_session,
     switch_login_method,
     check_mobile_auth,
+    get_login_auth_requirements,
     get_captcha_image,
     send_sms_code,
     get_qr_image,
@@ -546,22 +547,21 @@ def student_login_password():
     )
     
     if not success:
-        # 登录失败，检查是否需要新验证码
         error_msg = result
-        needs_new_captcha = 'E03' in error_msg  # 验证码错误
-        
         response = {
             'success': False,
             'message': error_msg
         }
-        
-        if needs_new_captcha:
-            # 获取新验证码
+
+        requirements_success, requirements = get_login_auth_requirements(session_id)
+        if requirements_success:
+            response.update(requirements)
+
+        if requirements_success and requirements['requires_captcha']:
             captcha_success, captcha_result = get_captcha_image(session_id)
             if captcha_success:
                 response['captcha_image'] = captcha_result
-                response['requires_captcha'] = True
-        
+
         return jsonify(response), 401
     
     # 登录成功，完成登录流程
@@ -751,7 +751,6 @@ def get_semesters(current_user):
             'academic_year': cfg.academic_year,
             'term': cfg.term,
             'first_week_monday': cfg.first_week_monday.isoformat() if cfg.first_week_monday else None,
-            'description': cfg.description,
             'is_active': cfg.is_active,
             'course_count': cfg.courses.count(),
         }
@@ -788,7 +787,6 @@ def admin_create_semester(current_user):
                 data.get('first_week_monday'),
                 required=True,
             ),
-            description=str(data.get('description') or '').strip() or None,
         )
         db.session.add(semester)
         db.session.commit()
@@ -849,9 +847,6 @@ def admin_update_semester(current_user, name):
                 data.get('first_week_monday'),
                 required=True,
             )
-        if 'description' in data:
-            semester.description = str(data.get('description') or '').strip() or None
-            
         db.session.commit()
         return jsonify({
             'success': True, 
@@ -859,7 +854,6 @@ def admin_update_semester(current_user, name):
             'semester': {
                 'name': semester.name,
                 'first_week_monday': semester.first_week_monday.isoformat() if semester.first_week_monday else None,
-                'description': semester.description,
             }
         })
     except (TypeError, ValueError) as e:
@@ -2341,6 +2335,12 @@ def admin_setup():
 
 
 # ---- 课程管理 ----
+
+@app.route('/api/admin/courses/import-policy', methods=['GET'])
+@admin_required
+def admin_get_course_import_policy(current_user):
+    """返回课程导入的身份、覆盖、UUID和级联策略。"""
+    return jsonify({'success': True, 'policy': get_import_policy()})
 
 @app.route('/api/admin/courses/import', methods=['POST'])
 @admin_required

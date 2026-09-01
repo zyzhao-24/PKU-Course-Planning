@@ -1,14 +1,41 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSemester } from '../contexts/SemesterContext';
 
 function SemesterSelector({ compact = false }) {
   const { semesters, selectedSemester, setSelectedSemester, loading } = useSemester();
   const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
   const wrapperRef = useRef(null);
+  const buttonRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const updateMenuPosition = () => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const viewportPadding = 8;
+    const width = Math.max(rect.width, compact ? 84 : 92);
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      window.innerWidth - width - viewportPadding
+    );
+    setMenuStyle({
+      position: 'fixed',
+      top: rect.bottom + 6,
+      left,
+      width,
+      zIndex: 5000,
+    });
+  };
 
   useEffect(() => {
     function handleClickOutside(event) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(event.target) &&
+        menuRef.current &&
+        !menuRef.current.contains(event.target)
+      ) {
         setOpen(false);
       }
     }
@@ -16,6 +43,20 @@ function SemesterSelector({ compact = false }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuStyle(null);
+      return undefined;
+    }
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [open, selectedSemester, compact]);
 
   if (!semesters.length) return null;
 
@@ -50,6 +91,7 @@ function SemesterSelector({ compact = false }) {
         学期
       </span>
       <button
+        ref={buttonRef}
         type="button"
         disabled={loading}
         onClick={() => setOpen(prev => !prev)}
@@ -88,20 +130,16 @@ function SemesterSelector({ compact = false }) {
         </span>
       </button>
 
-      {open && (
+      {open && menuStyle && createPortal(
         <div style={{
-          position: 'absolute',
-          top: `calc(100% + 6px)`,
-          right: compact ? '10px' : '12px',
-          zIndex: 1200,
-          minWidth: valueWidth,
+          ...menuStyle,
           padding: '6px',
           border: '1px solid #d8e3ef',
           borderRadius: '8px',
           backgroundColor: '#fbfdff',
           boxShadow: '0 10px 24px rgba(39, 78, 109, 0.14)',
           boxSizing: 'border-box'
-        }}>
+        }} ref={menuRef}>
           {semesters.map(semester => {
             const selected = semester === selectedSemester;
             return (
@@ -139,7 +177,7 @@ function SemesterSelector({ compact = false }) {
             );
           })}
         </div>
-      )}
+      , document.body)}
     </div>
   );
 }

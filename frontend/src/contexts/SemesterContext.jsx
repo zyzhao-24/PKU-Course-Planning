@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from '../utils/axios';
+import { sortSemestersDescending } from '../utils/semesters';
 
 const SemesterContext = createContext(null);
 
@@ -22,7 +23,7 @@ export function SemesterProvider({ children }) {
   const fetchSemesters = async () => {
     try {
       const res = await axios.get('/api/semesters');
-      const nextSemesters = res.data.semesters || [];
+      const nextSemesters = sortSemestersDescending(res.data.semesters || []);
       setSemesters(nextSemesters);
       setSemesterConfigs(res.data.configs || {});
       setSelectedSemester(current => (

@@ -1,4 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect
 from sqlalchemy.orm import DeclarativeBase
 
 class Base(DeclarativeBase):
@@ -13,6 +14,12 @@ def init_db(app):
         # so an upgraded database cannot retain or consult deletion history.
         with db.engine.begin() as connection:
             connection.exec_driver_sql("DROP TABLE IF EXISTS deleted_transcripts")
+            inspector = inspect(connection)
+            if (
+                'semesters' in inspector.get_table_names()
+                and 'description' in {column['name'] for column in inspector.get_columns('semesters')}
+            ):
+                connection.exec_driver_sql("ALTER TABLE semesters DROP COLUMN description")
         db.create_all()
         try:
             from college_english import seed_default_pool

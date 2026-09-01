@@ -20,6 +20,30 @@ from semester_utils import (
 IMPORT_MODES = {"append", "overwrite"}
 
 
+def get_import_policy() -> Dict[str, Any]:
+    return {
+        "match_key": ["target_semester", "course_id", "class_number"],
+        "course_master_key": "course_id",
+        "course_master_policy": "upsert_only_never_delete",
+        "modes": {
+            "append": "更新匹配班级、添加新班级、保留其他班级",
+            "overwrite": "更新匹配班级、添加新班级、删除目标学期其他班级",
+        },
+        "new_semester_mode": "append",
+        "uuid_policy": {
+            "source_semester": "优先使用 JSON UUID；缺失时生成",
+            "other_academic_year": "忽略 JSON UUID并按 BZ/CZ 规则重新生成",
+            "after_import": "具体班级操作只使用 UUID",
+        },
+        "semester_policy": {
+            "format": "yy-yy-{1,2,3}",
+            "retarget": "只允许修改学年，学期序号沿用 JSON",
+            "create_requires": "第一周周一日期",
+        },
+        "unlink_policy": "课程或学期删除、UUID替换时由 ORM 级联解除班级引用",
+    }
+
+
 def migrate_class_times_format(class_times, week_range=None):
     """Move a legacy course-level week range into each class-time item."""
     if not class_times or not isinstance(class_times, list):
@@ -207,8 +231,8 @@ def import_courses_from_json(
 ):
     """Import one JSON course catalog in a single database transaction."""
     try:
-        mode = str(import_mode or "append").strip().lower()
-        if mode not in IMPORT_MODES:
+        requested_mode = str(import_mode or "append").strip().lower()
+        if requested_mode not in IMPORT_MODES:
             raise ValueError("导入方式只能是 append 或 overwrite")
 
         data = json.loads(Path(file_path).read_text(encoding="utf-8"))
@@ -226,6 +250,7 @@ def import_courses_from_json(
             target_academic_year,
             first_week_monday,
         )
+        mode = "append" if semester_created else requested_mode
 
         courses = [_normalize_course(item) for item in raw_courses]
         identities = [_course_identity(course) for course in courses]
@@ -313,10 +338,13 @@ def import_courses_from_json(
             "target_semester": semester.name,
             "semester_created": semester_created,
             "import_mode": mode,
+            "requested_import_mode": requested_mode,
+            "effective_import_mode": mode,
             "added_count": added,
             "updated_count": updated,
             "removed_count": removed,
             "uuid_changed_count": uuid_changed,
+            "policy": get_import_policy(),
         }
         return True, result
     except Exception as exc:

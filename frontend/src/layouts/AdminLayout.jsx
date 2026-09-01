@@ -15,6 +15,7 @@ function AdminLayout() {
   const navItems = [
     { path: '/admin/dashboard', label: '概览' },
     { path: '/admin/courses', label: '课程与学期' },
+    { path: '/admin/general-requirements', label: '通用规定' },
     { path: '/admin/programs', label: '培养方案' },
     { path: '/admin/students', label: '设置' },
   ];
