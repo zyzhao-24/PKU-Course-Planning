@@ -112,7 +112,26 @@ function AdminStudents() {
     }
   };
 
+  const saveDisclaimerVisibility = async (visible) => {
+    if (!window.electronAPI?.setCoursePlanningDisclaimerVisible) return;
+
+    setAppSaving(true);
+    setStatus('');
+    try {
+      const settings = await window.electronAPI.setCoursePlanningDisclaimerVisible(visible);
+      setAppSettings(settings);
+      window.dispatchEvent(new CustomEvent('course-planning-disclaimer-visibility-changed', {
+        detail: { visible: settings?.ui?.showCoursePlanningDisclaimer !== false }
+      }));
+    } catch (err) {
+      setStatus('应用设置保存失败: ' + err.message);
+    } finally {
+      setAppSaving(false);
+    }
+  };
+
   const selectedCloseAction = appSettings?.window?.closeAction || 'ask';
+  const showCoursePlanningDisclaimer = appSettings?.ui?.showCoursePlanningDisclaimer !== false;
 
   if (loading) {
     return <div className="card">加载中...</div>;
@@ -194,6 +213,27 @@ function AdminStudents() {
                 className={`btn ${selectedCloseAction === option.value ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => saveCloseAction(option.value)}
                 disabled={appSaving || !window.electronAPI?.setCloseActionPreference}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: '20px' }}>
+          <div style={{ marginBottom: '10px', fontWeight: 500, color: '#4a5568' }}>
+            显示选课网提示
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+            {[
+              { value: true, label: '显示' },
+              { value: false, label: '不显示' },
+            ].map(option => (
+              <button
+                key={String(option.value)}
+                type="button"
+                className={`btn ${showCoursePlanningDisclaimer === option.value ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => saveDisclaimerVisibility(option.value)}
+                disabled={appSaving || !window.electronAPI?.setCoursePlanningDisclaimerVisible}
               >
                 {option.label}
               </button>

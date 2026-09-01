@@ -37,14 +37,24 @@ const DEFAULT_APP_SETTINGS = {
   window: {
     closeAction: 'ask',
   },
+  ui: {
+    showCoursePlanningDisclaimer: true,
+  },
 };
 
 const normalizeAppSettings = (settings = {}) => {
   const closeAction = settings.window?.closeAction;
+  const configuredDisclaimerVisibility = settings.ui?.showCoursePlanningDisclaimer;
+  const showCoursePlanningDisclaimer = typeof configuredDisclaimerVisibility === 'boolean'
+    ? configuredDisclaimerVisibility
+    : DEFAULT_APP_SETTINGS.ui.showCoursePlanningDisclaimer;
   return {
     schemaVersion: 1,
     window: {
       closeAction: CLOSE_ACTIONS.has(closeAction) ? closeAction : DEFAULT_APP_SETTINGS.window.closeAction,
+    },
+    ui: {
+      showCoursePlanningDisclaimer,
     },
   };
 };
@@ -84,10 +94,25 @@ const setCloseActionPreference = (closeAction) => {
   });
 };
 
+const setCoursePlanningDisclaimerVisibility = (visible) => {
+  saveAppSettings({
+    ...appSettings,
+    ui: {
+      ...appSettings.ui,
+      showCoursePlanningDisclaimer: visible === true,
+    },
+  });
+};
+
 ipcMain.handle('app-settings:get', () => appSettings);
 
 ipcMain.handle('app-settings:set-close-action', (_event, closeAction) => {
   setCloseActionPreference(closeAction);
+  return appSettings;
+});
+
+ipcMain.handle('app-settings:set-course-planning-disclaimer-visible', (_event, visible) => {
+  setCoursePlanningDisclaimerVisibility(visible);
   return appSettings;
 });
 

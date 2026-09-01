@@ -13,5 +13,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('navigate');
   },
   getAppSettings: () => ipcRenderer.invoke('app-settings:get'),
-  setCloseActionPreference: (closeAction) => ipcRenderer.invoke('app-settings:set-close-action', closeAction)
+  setCloseActionPreference: (closeAction) => ipcRenderer.invoke('app-settings:set-close-action', closeAction),
+  setCoursePlanningDisclaimerVisible: (visible) => ipcRenderer.invoke('app-settings:set-course-planning-disclaimer-visible', visible)
 });

@@ -1,8 +1,56 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
+
+const DISCLAIMER_VISIBILITY_EVENT = 'course-planning-disclaimer-visibility-changed';
 
 function StudentLayout() {
   const location = useLocation();
+  const [disclaimerVisible, setDisclaimerVisible] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDisclaimerPreference = async () => {
+      let visible = true;
+
+      if (window.electronAPI?.getAppSettings) {
+        try {
+          const settings = await window.electronAPI.getAppSettings();
+          visible = settings?.ui?.showCoursePlanningDisclaimer !== false;
+        } catch (error) {
+          console.warn('Unable to read disclaimer preference from app settings', error);
+        }
+      }
+
+      if (active) {
+        setDisclaimerVisible(visible);
+      }
+    };
+
+    const handleVisibilityChange = (event) => {
+      setDisclaimerVisible(event.detail?.visible !== false);
+    };
+
+    loadDisclaimerPreference();
+    window.addEventListener(DISCLAIMER_VISIBILITY_EVENT, handleVisibilityChange);
+    return () => {
+      active = false;
+      window.removeEventListener(DISCLAIMER_VISIBILITY_EVENT, handleVisibilityChange);
+    };
+  }, []);
+
+  const dismissDisclaimer = async () => {
+    setDisclaimerVisible(false);
+
+    if (window.electronAPI?.setCoursePlanningDisclaimerVisible) {
+      try {
+        await window.electronAPI.setCoursePlanningDisclaimerVisible(false);
+      } catch (error) {
+        console.warn('Unable to persist disclaimer preference to app settings', error);
+        setDisclaimerVisible(true);
+      }
+    }
+  };
 
   const navItems = [
     { path: '/student/courses', label: '选课' },
@@ -32,15 +80,24 @@ function StudentLayout() {
         </div>
       </nav>
 
-      <div className="system-disclaimer" role="alert">
-        <span className="system-disclaimer__mark" aria-hidden="true">!</span>
-        <div>
-          <strong>重要提示：</strong>
-          本系统仅供规划选课使用，与学校系统无关，不能替代选课网（
-          <a href="https://elective.pku.edu.cn" target="_blank" rel="noreferrer">elective.pku.edu.cn</a>
-          ）进行正式选课。
+      {disclaimerVisible === true && (
+        <div className="system-disclaimer" role="alert">
+          <span className="system-disclaimer__mark" aria-hidden="true">!</span>
+          <div className="system-disclaimer__content">
+            <strong>重要提示：</strong>
+            本系统仅供规划选课使用，与学校系统无关，不能替代选课网（
+            <a href="https://elective.pku.edu.cn" target="_blank" rel="noreferrer">elective.pku.edu.cn</a>
+            ）进行正式选课。
+          </div>
+          <button
+            type="button"
+            className="system-disclaimer__dismiss"
+            onClick={dismissDisclaimer}
+          >
+            不再提示
+          </button>
         </div>
-      </div>
+      )}
 
       <main>
         <Outlet />

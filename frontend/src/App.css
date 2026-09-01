@@ -207,6 +207,35 @@ h1 {
   font-weight: 700;
 }
 
+.system-disclaimer__content {
+  flex: 1 1 auto;
+}
+
+.system-disclaimer__dismiss {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid #c2410c;
+  border-radius: 5px;
+  background: transparent;
+  color: #9a3412;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.system-disclaimer__dismiss:hover {
+  background: #ffedd5;
+  color: #7c2d12;
+}
+
+.system-disclaimer__dismiss:focus-visible {
+  outline: 2px solid #9a3412;
+  outline-offset: 2px;
+}
+
 .system-disclaimer a {
   color: #9a3412;
   font-weight: 700;
@@ -221,8 +250,13 @@ h1 {
 @media (max-width: 640px) {
   .system-disclaimer {
     align-items: flex-start;
+    flex-wrap: wrap;
     padding: 10px 12px;
     font-size: 13px;
+  }
+
+  .system-disclaimer__dismiss {
+    margin-left: 32px;
   }
 }
 
