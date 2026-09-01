@@ -3,14 +3,32 @@ import axios from '../utils/axios';
 import { useSemester } from '../contexts/SemesterContext';
 import CourseTable from '../components/CourseTable';
 import { formatClassTimes, DEPARTMENT_CODE_MAP, WEEK_DAYS, formatExamInfo } from '../utils';
-import { findFixedScheduleConflictOwners } from '../utils/scheduleConflicts';
+import {
+  buildFixedBusyIndex,
+  findActivityConflictDetails,
+  findFixedScheduleConflictOwners,
+  getSemesterMaxWeeks,
+} from '../utils/scheduleConflicts';
 import Modal from '../components/Modal';
 import PortalConnectModal from '../components/PortalConnectModal';
 import SemesterSelector from '../components/SemesterSelector';
+import ActivityEditorModal from '../components/ActivityEditorModal';
+import ActivityConflictConfirmation from '../components/ActivityConflictConfirmation';
+import { useActivities } from '../contexts/ActivityContext';
+import { formatActivityTimeEntry } from '../utils/activityPresentation';
 
 function StudentSchedule() {
-  const { selectedSemester, getFirstWeekMonday } = useSemester();
+  const { selectedSemester, semesterConfigs, getFirstWeekMonday } = useSemester();
   const firstWeekMonday = getFirstWeekMonday();
+  const scheduleAdjustments = semesterConfigs[selectedSemester]?.schedule_adjustments || [];
+  const {
+    activities,
+    loading: activitiesLoading,
+    error: activitiesError,
+    createActivity,
+    updateActivity,
+    deleteActivity,
+  } = useActivities();
   const [courseDetails, setCourseDetails] = useState([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -19,6 +37,7 @@ function StudentSchedule() {
   const [programNodes, setProgramNodes] = useState([]);
   const [portalConnectOpen, setPortalConnectOpen] = useState(false);
   const [autoSelectedUuids, setAutoSelectedUuids] = useState(new Set()); // 自动选课的课程
+  const [activityEditor, setActivityEditor] = useState({ isOpen: false, activity: null });
 
   const [modal, setModal] = useState({
     isOpen: false,
@@ -131,7 +150,6 @@ function StudentSchedule() {
       
       const allCourses = [...fullCourses];
       setCourseDetails(allCourses);
-      checkConflicts(allCourses);
     } catch (error) {
       console.error("获取课表失败", error);
     } finally {
@@ -143,7 +161,77 @@ function StudentSchedule() {
     setConflicts(findFixedScheduleConflictOwners(courses, {
       semester: selectedSemester,
       firstWeekMonday,
+      activities,
+      adjustments: scheduleAdjustments,
     }));
+  };
+
+  useEffect(() => {
+    checkConflicts(courseDetails);
+  }, [courseDetails, activities, selectedSemester, semesterConfigs]);
+
+  const closeActivityEditor = () => setActivityEditor({ isOpen: false, activity: null });
+
+  const persistActivity = async (payload) => {
+    if (activityEditor.activity?.uuid) {
+      await updateActivity(activityEditor.activity.uuid, payload);
+    } else {
+      await createActivity(payload);
+    }
+    closeActivityEditor();
+  };
+
+  const handleSaveActivity = async (payload) => {
+    const draft = {
+      ...payload,
+      uuid: activityEditor.activity?.uuid || 'activity-draft',
+    };
+    const otherActivities = activities.filter(item => item.uuid !== activityEditor.activity?.uuid);
+    const busyIndex = buildFixedBusyIndex(courseDetails, {
+      semester: selectedSemester,
+      firstWeekMonday,
+      activities: otherActivities,
+      adjustments: scheduleAdjustments,
+    });
+    const conflictDetails = findActivityConflictDetails(draft, busyIndex);
+    if (!conflictDetails.length) {
+      await persistActivity(payload);
+      return;
+    }
+
+    showModal(
+      '确认时间冲突',
+      <ActivityConflictConfirmation activity={draft} details={conflictDetails} />,
+      async () => {
+        closeModal();
+        try {
+          await persistActivity(payload);
+        } catch (error) {
+          showModal('错误', error.response?.data?.message || error.message, closeModal, false, 'btn btn-danger');
+        }
+      },
+      true,
+      'btn btn-warning',
+    );
+  };
+
+  const requestDeleteActivity = (activity) => {
+    showModal(
+      '删除活动',
+      `确定删除“${activity.title}”吗？`,
+      async () => {
+        try {
+          await deleteActivity(activity.uuid);
+          closeModal();
+          closeActivityEditor();
+        } catch (error) {
+          closeModal();
+          showModal('错误', error.response?.data?.message || error.message, closeModal, false, 'btn btn-danger');
+        }
+      },
+      true,
+      'btn btn-danger',
+    );
   };
 
   const handleClearAll = () => {
@@ -271,6 +359,16 @@ function StudentSchedule() {
 
   return (
     <div>
+      <ActivityEditorModal
+        isOpen={activityEditor.isOpen}
+        activity={activityEditor.activity}
+        semester={selectedSemester}
+        maxWeeks={getSemesterMaxWeeks(selectedSemester)}
+        firstWeekMonday={firstWeekMonday}
+        onCancel={closeActivityEditor}
+        onSave={handleSaveActivity}
+        onDelete={requestDeleteActivity}
+      />
       <Modal 
         isOpen={modal.isOpen} 
         title={modal.title} 
@@ -313,6 +411,12 @@ function StudentSchedule() {
               课程数: <span style={{ color: '#2c3e50', fontSize: '1.2em' }}>{courseDetails.length}</span>
             </span>
             <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setActivityEditor({ isOpen: true, activity: null })}
+              >
+                添加活动
+              </button>
               <button className="btn btn-secondary" onClick={handleSyncSchedule} disabled={syncing}>
                 {syncing ? '同步中...' : '同步课表'}
               </button>
@@ -325,10 +429,56 @@ function StudentSchedule() {
         {loading ? <div>加载中...</div> : (
           <CourseTable 
             courses={courseDetails} 
+            activities={activities}
+            adjustments={scheduleAdjustments}
             semester={selectedSemester} 
             firstWeekMonday={firstWeekMonday}
             onWeekChange={handleWeekChange}
+            onActivityClick={activity => setActivityEditor({ isOpen: true, activity })}
           />
+        )}
+      </div>
+
+      <div className="card">
+        <h3>活动列表</h3>
+        {activitiesError && <div className="status-bar status-error">{activitiesError}</div>}
+        {activitiesLoading ? <div>加载中...</div> : activities.length === 0 ? (
+          <div style={{ padding: '14px 0', color: '#64748b', fontSize: '13px' }}>暂无活动</div>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>活动</th>
+                  <th>时间及地点</th>
+                  <th>冲突检查</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activities.map(activity => (
+                  <tr key={activity.uuid} className={conflicts.has(activity.uuid) ? 'conflict-row' : ''}>
+                    <td>{activity.title}</td>
+                    <td style={{ whiteSpace: 'pre-line' }}>
+                      {(activity.time_entries || []).map(formatActivityTimeEntry).join('\n')}
+                    </td>
+                    <td>{(() => {
+                      const blockingCount = (activity.time_entries || []).filter(entry => entry.blocking !== false).length;
+                      if (blockingCount === 0) return '不参与';
+                      if (blockingCount === (activity.time_entries || []).length) return '全部参与';
+                      return '部分参与';
+                    })()}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button className="btn btn-primary btn-sm" onClick={() => setActivityEditor({ isOpen: true, activity })}>编辑</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => requestDeleteActivity(activity)}>删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

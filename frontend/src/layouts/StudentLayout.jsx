@@ -18,7 +18,7 @@ function StudentLayout() {
   return (
     <div className="container">
       <nav className="navbar">
-        <div className="navbar-brand">选课与毕业审查系统</div>
+        <div className="navbar-brand">选课规划和进度审查系统</div>
         <div className="navbar-links">
           {navItems.map(item => (
             <Link
@@ -31,6 +31,16 @@ function StudentLayout() {
           ))}
         </div>
       </nav>
+
+      <div className="system-disclaimer" role="alert">
+        <span className="system-disclaimer__mark" aria-hidden="true">!</span>
+        <div>
+          <strong>重要提示：</strong>
+          本系统仅供规划选课使用，与学校系统无关，不能替代选课网（
+          <a href="https://elective.pku.edu.cn" target="_blank" rel="noreferrer">elective.pku.edu.cn</a>
+          ）进行正式选课。
+        </div>
+      </div>
 
       <main>
         <Outlet />

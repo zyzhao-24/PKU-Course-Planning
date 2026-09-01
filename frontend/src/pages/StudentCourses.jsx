@@ -10,9 +10,11 @@ import {
 import Modal from '../components/Modal';
 import ConflictConfirmation from '../components/ConflictConfirmation';
 import SemesterSelector from '../components/SemesterSelector';
+import { useActivities } from '../contexts/ActivityContext';
 
 function StudentCourses() {
   const { selectedSemester, semesterConfigs } = useSemester();
+  const { activities } = useActivities();
   const [courses, setCourses] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -153,7 +155,9 @@ function StudentCourses() {
   const fixedBusyIndex = useMemo(() => buildFixedBusyIndex(selectedCoursesDetails, {
       semester: selectedSemester,
       firstWeekMonday: semesterConfigs[selectedSemester]?.first_week_monday || null,
-    }), [selectedCoursesDetails, selectedSemester, semesterConfigs]);
+      activities,
+      adjustments: semesterConfigs[selectedSemester]?.schedule_adjustments || [],
+    }), [selectedCoursesDetails, selectedSemester, semesterConfigs, activities]);
 
   useEffect(() => {
     const candidates = courses.filter(course => !selectedCourseUuids.has(course.uuid));

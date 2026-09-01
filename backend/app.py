@@ -43,6 +43,8 @@ from sqlalchemy import or_
 
 # 导入培养方案新系统
 from program_api import program_bp
+from activity_api import activity_bp
+from schedule_adjustment_api import schedule_adjustment_bp, serialize_schedule_adjustment
 
 from importer import get_import_policy, import_courses_from_json
 from semester_utils import (
@@ -126,6 +128,8 @@ init_db(app)
 
 # 注册培养方案新系统的 blueprint
 app.register_blueprint(program_bp)
+app.register_blueprint(activity_bp)
+app.register_blueprint(schedule_adjustment_bp)
 
 
 def serialize_user(user):
@@ -753,6 +757,10 @@ def get_semesters(current_user):
             'first_week_monday': cfg.first_week_monday.isoformat() if cfg.first_week_monday else None,
             'is_active': cfg.is_active,
             'course_count': cfg.courses.count(),
+            'schedule_adjustments': [
+                serialize_schedule_adjustment(item)
+                for item in cfg.schedule_adjustments
+            ],
         }
     
     return jsonify({

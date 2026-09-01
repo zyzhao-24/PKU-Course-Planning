@@ -557,7 +557,7 @@ function Login() {
           fontSize: '24px',
           fontWeight: '600'
         }}>
-          选课与毕业审查系统
+          选课规划和进度审查系统
         </h1>
 
         {/* 标签切换 */}

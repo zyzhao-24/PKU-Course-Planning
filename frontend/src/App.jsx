@@ -2,6 +2,7 @@ import React from 'react';
 import { HashRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SemesterProvider } from './contexts/SemesterContext';
+import { ActivityProvider } from './contexts/ActivityContext';
 import StudentLayout from './layouts/StudentLayout';
 import StudentCourses from './pages/StudentCourses';
 import StudentSchedule from './pages/StudentSchedule';
@@ -22,6 +23,7 @@ function AppShell() {
 
   return (
     <SemesterProvider>
+      <ActivityProvider>
       <Router>
         <Routes>
           <Route path="/" element={<StudentLayout />}>
@@ -48,6 +50,7 @@ function AppShell() {
           <Route path="*" element={<Navigate to="/student/courses" replace />} />
         </Routes>
       </Router>
+      </ActivityProvider>
     </SemesterProvider>
   );
 }

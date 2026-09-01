@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFixedBusyIndex,
+  buildScheduleAdjustmentIndex,
   buildScheduleEventsForWeek,
   coursesHaveClassConflict,
   findCandidateCourseConflictOwners,
   findCandidateCourseConflictDetails,
   findFixedScheduleConflictOwners,
   groupOverlappingEvents,
+  resolveActualScheduleDay,
 } from './scheduleConflicts.js';
 
 const firstWeekMonday = new Date(2026, 8, 7);
@@ -138,4 +140,228 @@ test('current-week rendering merges transitively overlapping events', () => {
   assert.equal(groups[0].startMinute, 480);
   assert.equal(groups[0].endMinute, 720);
   assert.deepEqual(groups[1].events.map(event => event.id), ['d']);
+});
+
+test('activities use week and weekday for recurring and one-off times', () => {
+  const activities = [
+    {
+      uuid: 'weekly',
+      title: '组会',
+      blocking: true,
+      time_entries: [{
+        recurrence: { type: 'weeks', day: 3, week_range: '1-16', week_type: 0 },
+        time: { type: 'clock', start: '12:30', end: '13:30' },
+        location: '会议室',
+      }],
+    },
+    {
+      uuid: 'one-off',
+      title: '讲座',
+      blocking: true,
+      time_entries: [{
+        recurrence: { type: 'weeks', day: 1, week_range: '0', week_type: 0 },
+        time: { type: 'periods', start_period: 5, end_period: 6 },
+        location: '礼堂',
+      }],
+    },
+  ];
+  const events = [
+    ...buildScheduleEventsForWeek([], 1, {
+      firstWeekMonday,
+      maxWeeks: 18,
+      activities,
+    }),
+    ...buildScheduleEventsForWeek([], 0, {
+      firstWeekMonday,
+      maxWeeks: 18,
+      activities,
+    }),
+  ];
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].kind, 'custom');
+  assert.equal(events[0].startMinute, 12 * 60 + 30);
+  assert.equal(events[1].startMinute, 13 * 60);
+});
+
+test('non-blocking activities render but do not enter candidate conflict index', () => {
+  const activity = {
+      uuid: 'info',
+      title: '提醒',
+      time_entries: [{
+      recurrence: { type: 'weeks', day: 1, week_range: '1', week_type: 0 },
+      time: { type: 'periods', start_period: 1, end_period: 2 },
+      location: '',
+      blocking: false,
+    }],
+  };
+  const candidate = course('candidate', [classTime({ week_range: '1' })]);
+  const busyIndex = buildFixedBusyIndex([], {
+    semester: '26-27-1',
+    firstWeekMonday,
+    activities: [activity],
+  });
+  const rendered = buildScheduleEventsForWeek([], 1, {
+    firstWeekMonday,
+    maxWeeks: 18,
+    activities: [activity],
+  });
+
+  assert.equal(rendered.length, 1);
+  assert.equal(findCandidateCourseConflictOwners([candidate], busyIndex).size, 0);
+  const groups = groupOverlappingEvents([
+    { id: 'course', startMinute: 480, endMinute: 590, blocking: true },
+    { id: 'info', startMinute: 500, endMinute: 540, blocking: false },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].isConflict, false);
+});
+
+test('mapped course days use the source week eligibility and actual destination day', () => {
+  const selected = course('mapped', [classTime({ day: 1, week_range: '1', week_type: 1 })]);
+  const adjustments = [{
+    id: 1,
+    name: '调休',
+    entries: [{
+      actual: { week: 2, day: 7 },
+      mode: 'mapped',
+      use_schedule_of: { week: 1, day: 1 },
+    }],
+  }];
+  const events = buildScheduleEventsForWeek([selected], 2, {
+    maxWeeks: 18,
+    adjustments,
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].week, 2);
+  assert.equal(events[0].day, 7);
+  assert.equal(events[0].normalWeek, 1);
+  assert.equal(events[0].normalDay, 1);
+});
+
+test('off days remove courses but keep activities and independent exams', () => {
+  const independentExam = course(
+    'exam',
+    [classTime({ day: 2, week_range: '1' })],
+    { date: '20260907', period: 1, location: '考场' },
+  );
+  const mondayCourse = course('holiday-course', [classTime({ day: 1, week_range: '1' })]);
+  const activity = {
+    uuid: 'holiday-activity',
+    title: '活动',
+    time_entries: [{
+      recurrence: { type: 'weeks', day: 1, week_range: '1', week_type: 0 },
+      time: { type: 'periods', start_period: 5, end_period: 6 },
+      blocking: true,
+    }],
+  };
+  const adjustments = [{
+    id: 1,
+    name: '放假',
+    entries: [{ actual: { week: 1, day: 1 }, mode: 'off' }],
+  }];
+  const events = buildScheduleEventsForWeek([independentExam, mondayCourse], 1, {
+    firstWeekMonday,
+    maxWeeks: 18,
+    activities: [activity],
+    adjustments,
+  });
+
+  assert.deepEqual(events.map(event => event.kind).sort(), ['class', 'custom', 'exam']);
+  assert.equal(events.some(event => event.course?.uuid === 'holiday-course'), false);
+  assert.equal(events.find(event => event.kind === 'exam').isInClassExam, false);
+  assert.equal(events.find(event => event.kind === 'exam').day, 1);
+  assert.equal(events.find(event => event.kind === 'custom').day, 1);
+});
+
+test('in-class exams follow their projected course occurrence', () => {
+  const selected = course(
+    'in-class-moved',
+    [classTime({ day: 1, start_period: 1, end_period: 2, week_range: '1' })],
+    { date: '20260907', period: 1, location: '教室' },
+  );
+  const adjustments = [{
+    id: 1,
+    name: '调休',
+    entries: [
+      { actual: { week: 1, day: 1 }, mode: 'off' },
+      {
+        actual: { week: 1, day: 7 },
+        mode: 'mapped',
+        use_schedule_of: { week: 1, day: 1 },
+      },
+    ],
+  }];
+  const events = buildScheduleEventsForWeek([selected], 1, {
+    firstWeekMonday,
+    maxWeeks: 18,
+    adjustments,
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'exam');
+  assert.equal(events[0].isInClassExam, true);
+  assert.equal(events[0].day, 7);
+});
+
+test('candidate conflict lookup uses adjusted actual course days', () => {
+  const fixedActivity = {
+    uuid: 'sunday-event',
+    title: '周日活动',
+    time_entries: [{
+      recurrence: { type: 'weeks', day: 7, week_range: '1', week_type: 0 },
+      time: { type: 'periods', start_period: 1, end_period: 2 },
+      blocking: true,
+    }],
+  };
+  const adjustments = [{
+    id: 1,
+    name: '调课',
+    entries: [{
+      actual: { week: 1, day: 7 },
+      mode: 'mapped',
+      use_schedule_of: { week: 1, day: 1 },
+    }],
+  }];
+  const busyIndex = buildFixedBusyIndex([], {
+    semester: '26-27-1',
+    firstWeekMonday,
+    activities: [fixedActivity],
+    adjustments,
+  });
+  const candidate = course('candidate-adjusted', [classTime({ day: 1, week_range: '1' })]);
+
+  assert.deepEqual(
+    [...findCandidateCourseConflictOwners([candidate], busyIndex)],
+    ['candidate-adjusted'],
+  );
+  const details = findCandidateCourseConflictDetails(candidate, busyIndex);
+  assert.equal(details.length, 1);
+  assert.equal(details[0].week, 1);
+  assert.equal(details[0].day, 7);
+});
+
+test('adjustment lookup is direct and marks only explicit off actual days', () => {
+  const index = buildScheduleAdjustmentIndex([{
+    id: 1,
+    name: '连续调整',
+    entries: [
+      { actual: { week: 1, day: 1 }, mode: 'off' },
+      {
+        actual: { week: 1, day: 2 },
+        mode: 'mapped',
+        use_schedule_of: { week: 1, day: 1 },
+      },
+    ],
+  }]);
+
+  assert.equal(resolveActualScheduleDay(index, 1, 1).mode, 'off');
+  assert.deepEqual(resolveActualScheduleDay(index, 1, 2), {
+    mode: 'mapped',
+    normalWeek: 1,
+    normalDay: 1,
+    adjustment: index.get('1:2'),
+  });
+  assert.equal(resolveActualScheduleDay(index, 1, 3).mode, 'normal');
 });

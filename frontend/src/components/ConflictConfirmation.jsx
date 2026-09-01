@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { formatClassTimes, formatExamInfo } from '../utils';
+import { formatActivityTimeEntry } from '../utils/activityPresentation';
 
 const classTimeKey = (classTime) => [
   classTime?.day,
@@ -39,6 +40,7 @@ function ConflictConfirmation({ course, channel, details }) {
         sources.set(sourceKey, {
           key: sourceKey,
           course: event.course,
+          activity: event.activity,
           title: event.course?.course_name || event.title || '自定义事件',
           classTimes: new Set(),
           examConflict: false,
@@ -110,13 +112,16 @@ function ConflictConfirmation({ course, channel, details }) {
                 conflict={source.examConflict}
               />
             )}
-            {source.customEvents.map(event => (
+            {(source.activity?.time_entries || []).map((entry, index) => (
               <TimeRow
-                key={event.id}
-                label="事件"
-                value={event.title || '自定义事件'}
-                conflict
+                key={`${JSON.stringify(entry)}:${index}`}
+                label="活动"
+                value={formatActivityTimeEntry(entry)}
+                conflict={source.customEvents.some(event => event.activityEntry === entry)}
               />
+            ))}
+            {!source.activity && source.customEvents.map(event => (
+              <TimeRow key={event.id} label="活动" value={event.title || '活动'} conflict />
             ))}
           </div>
         ))}

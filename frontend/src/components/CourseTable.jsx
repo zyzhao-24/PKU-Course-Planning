@@ -3,11 +3,14 @@ import { WEEK_DAYS, getWeekDate, formatDate } from '../utils';
 import {
   PERIODS,
   EXAM_PERIODS,
+  buildScheduleAdjustmentIndex,
   buildScheduleEventsForWeek,
   getSemesterMaxWeeks,
   groupOverlappingEvents,
+  resolveActualScheduleDay,
   timeToMinutes,
 } from '../utils/scheduleConflicts';
+import { ACTIVITY_COLOR_SETS } from '../utils/activityPresentation';
 
 // ==================== 常量定义 ====================
 
@@ -40,7 +43,15 @@ function formatTime(minutes) {
   return `${h}:${String(m).padStart(2, '0')}`;
 }
 
-function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
+function CourseTable({
+  courses,
+  activities = [],
+  adjustments = [],
+  semester,
+  firstWeekMonday,
+  onWeekChange,
+  onActivityClick,
+}) {
   const [currentWeek, setCurrentWeek] = useState(1);
   
   const days = [1, 2, 3, 4, 5, 6, 7];
@@ -53,6 +64,17 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
   }, [currentWeek, onWeekChange]);
 
   const maxWeeks = getSemesterMaxWeeks(semester);
+  const adjustmentIndex = useMemo(
+    () => buildScheduleAdjustmentIndex(adjustments),
+    [adjustments],
+  );
+  const currentDaySchedules = useMemo(() => {
+    const result = {};
+    days.forEach(day => {
+      result[day] = resolveActualScheduleDay(adjustmentIndex, currentWeek, day);
+    });
+    return result;
+  }, [adjustmentIndex, currentWeek]);
 
   useEffect(() => {
     setCurrentWeek(1);
@@ -65,11 +87,12 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
    */
   const createEvent = (type, data) => {
     const base = {
+      id: data.id,
       type, // 'course' | 'exam'
       course_id: data.course_id,
       class_number: data.class_number,
       credits: parseFloat(data.credits || 0),
-      colorset: getCourseColor(data.course_id),
+      colorset: data.colorset || getCourseColor(data.course_id),
       name: data.name,
       start_time: data.start_time, // minutes
       end_time: data.end_time,     // minutes
@@ -94,9 +117,32 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
     const events = weekEvents
       .filter(event => event.day === day)
       .map(event => {
+        if (event.kind === 'custom') {
+          const activity = event.activity;
+          const displayEvent = createEvent('custom', {
+            id: event.id,
+            course_id: '',
+            class_number: '',
+            credits: 0,
+            colorset: ACTIVITY_COLOR_SETS[activity.color] || ACTIVITY_COLOR_SETS.green,
+            name: activity.title,
+            start_time: event.startMinute,
+            end_time: event.endMinute,
+            location: event.location,
+            remarks: activity.notes || '',
+            _original: { activity, activityEntry: event.activityEntry },
+          });
+          return {
+            ...displayEvent,
+            startMinute: event.startMinute,
+            endMinute: event.endMinute,
+            blocking: event.blocking,
+          };
+        }
         const { course, classTime, examInfo } = event;
         const type = event.kind === 'exam' ? 'exam' : 'course';
         const displayEvent = createEvent(type, {
+          id: event.id,
           course_id: course.course_id,
           class_number: course.class_number,
           credits: course.credits,
@@ -120,6 +166,7 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
           ...displayEvent,
           startMinute: event.startMinute,
           endMinute: event.endMinute,
+          blocking: true,
         };
       });
 
@@ -127,7 +174,7 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
       start: group.startMinute,
       end: group.endMinute,
       events: group.events,
-      isConflict: group.events.length > 1,
+      isConflict: group.isConflict,
     }));
   };
 
@@ -136,8 +183,8 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
   const currentWeekEvents = useMemo(() => buildScheduleEventsForWeek(
     courses,
     currentWeek,
-    { firstWeekMonday, maxWeeks },
-  ), [courses, currentWeek, firstWeekMonday, maxWeeks]);
+    { firstWeekMonday, maxWeeks, activities, adjustments },
+  ), [courses, activities, adjustments, currentWeek, firstWeekMonday, maxWeeks]);
 
   const { startHour, endHour, totalHeight, dayGroups } = useMemo(() => {
     // 按天处理事件组
@@ -289,7 +336,8 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
     
     return (
       <div
-        key={`${event.type}-${event.start_time}`}
+        key={event.id || `${event.type}-${event.start_time}`}
+        onClick={event.type === 'custom' ? () => onActivityClick?.(event._original.activity) : undefined}
         style={{
           position: 'absolute',
           top,
@@ -304,18 +352,19 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
           overflow: 'hidden',
           zIndex: 1,
           boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          cursor: event.type === 'custom' ? 'pointer' : 'default',
         }}
       >
         {/* 课号-班号 xx学分 */}
-        <div style={{ 
+        {event.type !== 'custom' && <div style={{
           fontSize: '10px', 
           fontWeight: 'bold', 
           color: textColor,
           marginBottom: '2px'
         }}>
           {event.course_id}-{event.class_number} {event.credits.toFixed(1)}学分
-        </div>
+        </div>}
         
         {/* 课程名称 */}
         <div style={{ 
@@ -337,6 +386,11 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
             marginBottom: '2px'
           }}>
             📝 期末考试
+          </div>
+        )}
+        {event.type === 'custom' && (
+          <div style={{ fontSize: '10px', fontWeight: 600, color: textColor, marginBottom: '2px' }}>
+            活动
           </div>
         )}
         
@@ -393,14 +447,14 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
           height,
           left: '2px',
           right: '2px',
-          backgroundColor: '#ffebee',
-          border: `2px solid #c62828`,
+          backgroundColor: isConflict ? '#ffebee' : '#f8fafc',
+          border: `2px solid ${isConflict ? '#c62828' : '#cbd5e1'}`,
           borderRadius: '4px',
           padding: '4px',
           fontSize: '11px',
           overflow: 'hidden',
-          zIndex: 3,
-          boxShadow: '0 0 8px rgba(198, 40, 40, 0.4)',
+          zIndex: isConflict ? 3 : 2,
+          boxShadow: isConflict ? '0 0 8px rgba(198, 40, 40, 0.4)' : '0 1px 2px rgba(0,0,0,0.08)',
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
@@ -413,12 +467,14 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
           
           return (
             <div 
-              key={`evt-${idx}`}
+              key={event.id || `evt-${idx}`}
+              onClick={event.type === 'custom' ? () => onActivityClick?.(event._original.activity) : undefined}
               style={{
                 flexShrink: 0,
                 paddingBottom: isLast ? 0 : '4px',
                 borderBottom: isLast ? 'none' : `1px dashed ${event.colorset.border}`,
-                minHeight: 0
+                minHeight: 0,
+                cursor: event.type === 'custom' ? 'pointer' : 'default',
               }}
             >
               {/* 课程名（颜色，加粗）+ 考试标识 */}
@@ -431,7 +487,7 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
                 alignItems: 'center',
                 gap: '4px'
               }}>
-                <span>⚠</span>
+                {isConflict && <span>⚠</span>}
                 <span>{event.name}</span>
                 {event.type === 'exam' && (
                   <span style={{ 
@@ -443,6 +499,7 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
                     期末考试
                   </span>
                 )}
+                {event.type === 'custom' && <span style={{ fontSize: '10px', opacity: 0.8 }}>活动</span>}
               </div>
               
               {/* 时间 */}
@@ -476,18 +533,27 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
 
       <div id="course-table-scroll-container" style={{ position: 'relative', border: '1px solid #ddd', overflowX: 'auto', overflowY: 'hidden' }}>
         {/* Header */}
-        <div style={{ display: 'flex', height: '40px', borderBottom: '1px solid #ddd', position: 'sticky', top: 0, background: '#fff', zIndex: 10 }}>
+        <div style={{ display: 'flex', minHeight: '46px', borderBottom: '1px solid #ddd', position: 'sticky', top: 0, background: '#fff', zIndex: 10 }}>
           <div style={{ width: '60px', flexShrink: 0, borderRight: '1px solid #ddd', background: '#f9f9f9', zIndex: 11 }}></div>
-          {days.map(day => (
-            <div key={day} style={{ flex: 1, minWidth: '100px', textAlign: 'center', borderRight: '1px solid #ddd', fontWeight: 'bold', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          {days.map(day => {
+            const daySchedule = currentDaySchedules[day];
+            const isOff = daySchedule.mode === 'off';
+            return (
+            <div key={day} title={daySchedule.adjustment?.adjustmentReason || daySchedule.adjustment?.adjustmentName || ''} style={{ flex: 1, minWidth: '100px', textAlign: 'center', borderRight: '1px solid #ddd', fontWeight: 'bold', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: isOff ? '#e5e7eb' : '#fff' }}>
               <span>{WEEK_DAYS[day]}</span>
               {weekDates[day] && (
                 <span style={{ fontSize: '11px', color: '#666', fontWeight: 'normal' }}>
                   {formatDate(weekDates[day])}
                 </span>
               )}
+              {isOff && <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>放假</span>}
+              {daySchedule.mode === 'mapped' && (
+                <span style={{ fontSize: '9px', color: '#475569', fontWeight: 'normal' }}>
+                  采用第{daySchedule.normalWeek}周{WEEK_DAYS[daySchedule.normalDay]}课表
+                </span>
+              )}
             </div>
-          ))}
+          );})}
         </div>
 
         {/* Body */}
@@ -503,7 +569,7 @@ function CourseTable({ courses, semester, firstWeekMonday, onWeekChange }) {
               {renderTimeLabels()}
             </div>
             {days.map(day => (
-              <div key={day} style={{ flex: 1, minWidth: '100px', borderRight: '1px solid #eee', position: 'relative' }}>
+              <div key={day} style={{ flex: 1, minWidth: '100px', borderRight: '1px solid #eee', position: 'relative', background: currentDaySchedules[day].mode === 'off' ? 'rgba(148, 163, 184, 0.2)' : 'transparent' }}>
                 {/* Render Conflict Groups for this day */}
                 {(dayGroups[day] || []).map((group, idx) => renderConflictGroup(group, idx))}
               </div>

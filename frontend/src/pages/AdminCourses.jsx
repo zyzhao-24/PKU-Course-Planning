@@ -4,6 +4,7 @@ import { useSemester } from '../contexts/SemesterContext';
 import { DEPARTMENT_CODE_MAP, formatClassTimes, WEEK_DAYS, WEEK_TYPES } from '../utils';
 import Modal from '../components/Modal';
 import SemesterSelector from '../components/SemesterSelector';
+import ScheduleAdjustmentManager from '../components/ScheduleAdjustmentManager';
 
 // 课程时段编辑器组件
 function ClassTimeEditor({ value = [], onChange }) {
@@ -391,6 +392,7 @@ function SemesterManager({ showModal, closeModal, onCreateCourse, onClearCourses
       )}
 
       {status && <div style={{ marginTop: '12px', color: status.includes('成功') || status.includes('保存') || status.includes('删除') ? '#2f855a' : '#c62828', fontSize: '13px' }}>{status}</div>}
+      <ScheduleAdjustmentManager showModal={showModal} closeModal={closeModal} />
       {semesters.length === 0 && !showCreate && <div style={{ marginTop: '16px', color: '#64748b' }}>请先创建学期，再导入课程。</div>}
     </div>
   );

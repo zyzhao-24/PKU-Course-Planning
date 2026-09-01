@@ -11,6 +11,7 @@ import {
 } from '../utils/scheduleConflicts';
 import ConflictConfirmation from '../components/ConflictConfirmation';
 import { sortSemestersDescending } from '../utils/semesters';
+import { useActivities } from '../contexts/ActivityContext';
 
 function CourseLookupInput({ value, onChange, onSelect, semester, placeholder }) {
   const [focused, setFocused] = useState(false);
@@ -214,6 +215,7 @@ const collectExpandableNodeIds = (items, ids = new Set()) => {
 
 function StudentProgress() {
   const { selectedSemester, semesterConfigs } = useSemester();
+  const { activities } = useActivities();
   const [progressData, setProgressData] = useState({ major: null, minor: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -841,7 +843,9 @@ function StudentProgress() {
   const fixedBusyIndex = useMemo(() => buildFixedBusyIndex(selectedCoursesDetails, {
       semester: selectedSemester,
       firstWeekMonday: semesterConfigs[selectedSemester]?.first_week_monday || null,
-    }), [selectedCoursesDetails, selectedSemester, semesterConfigs]);
+      activities,
+      adjustments: semesterConfigs[selectedSemester]?.schedule_adjustments || [],
+    }), [selectedCoursesDetails, selectedSemester, semesterConfigs, activities]);
 
   useEffect(() => {
     const candidates = courseListModal.matchingCourses.filter(

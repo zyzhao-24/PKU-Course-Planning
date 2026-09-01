@@ -177,6 +177,55 @@ h1 {
   border-bottom: 2px solid #0067c0;
 }
 
+.system-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -6px 0 20px;
+  padding: 11px 14px;
+  border: 1px solid #e2a11b;
+  border-left: 5px solid #c2410c;
+  border-radius: 6px;
+  background: #fff7d6;
+  color: #713f12;
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: 0 2px 5px rgba(120, 53, 15, 0.1);
+}
+
+.system-disclaimer__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #c2410c;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.system-disclaimer a {
+  color: #9a3412;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.system-disclaimer a:hover {
+  color: #7c2d12;
+}
+
+@media (max-width: 640px) {
+  .system-disclaimer {
+    align-items: flex-start;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+}
+
 /* Print Styles */
 @media print {
   @page {
@@ -343,6 +392,165 @@ h1 {
   font-weight: 600;
   border-bottom: 1px solid #edf2f7;
   padding-bottom: 12px;
+}
+
+.schedule-adjustment-manager {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.schedule-adjustment-manager__heading,
+.schedule-adjustment-form__actions,
+.schedule-adjustment-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.schedule-adjustment-manager__heading h4 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 15px;
+}
+
+.schedule-adjustment-manager__empty {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.schedule-adjustment-form {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.schedule-adjustment-form__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.schedule-adjustment-form__entries {
+  display: grid;
+  gap: 10px;
+}
+
+.schedule-adjustment-entry {
+  display: grid;
+  grid-template-columns: auto repeat(5, minmax(105px, 1fr)) auto auto;
+  align-items: end;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid #cbd5e1;
+  border-bottom: 1px dashed #cbd5e1;
+  background: #fff;
+}
+
+.schedule-adjustment-entry .form-group {
+  margin-bottom: 0;
+}
+
+.schedule-adjustment-entry__index {
+  align-self: center;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.schedule-adjustment-entry__meta {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  min-width: 96px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.schedule-adjustment-entry__error {
+  color: #c62828;
+}
+
+.schedule-adjustment-form__actions {
+  margin-top: 12px;
+}
+
+.schedule-adjustment-form__spacer {
+  flex: 1;
+}
+
+.schedule-adjustment-list {
+  margin-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.schedule-adjustment-list__item {
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.schedule-adjustment-list__content {
+  min-width: 0;
+}
+
+.schedule-adjustment-list__title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.schedule-adjustment-list__title span,
+.schedule-adjustment-list__entries {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.schedule-adjustment-list__entries {
+  margin-top: 5px;
+  line-height: 1.7;
+}
+
+.schedule-adjustment-list__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+@media (max-width: 1000px) {
+  .schedule-adjustment-entry {
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
+  .schedule-adjustment-entry__index,
+  .schedule-adjustment-entry__meta {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .schedule-adjustment-manager__heading,
+  .schedule-adjustment-form__actions,
+  .schedule-adjustment-list__item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .schedule-adjustment-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-adjustment-form__spacer {
+    display: none;
+  }
 }
 
 /* Inputs & Buttons */

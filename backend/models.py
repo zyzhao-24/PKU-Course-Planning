@@ -294,6 +294,82 @@ class Semester(db.Model):
     
     # 关系：学期下的所有课程
     courses = db.relationship('Course', backref='semester_ref', lazy='dynamic', cascade='all, delete-orphan')
+    activities = db.relationship('ScheduleActivity', backref='semester_ref', cascade='all, delete-orphan')
+    schedule_adjustments = db.relationship(
+        'ScheduleAdjustment',
+        back_populates='semester_ref',
+        cascade='all, delete-orphan',
+    )
+
+
+class ScheduleAdjustment(db.Model):
+    """A named semester calendar adjustment containing multiple day rules."""
+    __tablename__ = 'schedule_adjustments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    semester = db.Column(db.String(20), db.ForeignKey('semesters.name'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    reason = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    semester_ref = db.relationship('Semester', back_populates='schedule_adjustments')
+    entries = db.relationship(
+        'ScheduleAdjustmentEntry',
+        back_populates='adjustment',
+        cascade='all, delete-orphan',
+        order_by='ScheduleAdjustmentEntry.id',
+    )
+
+
+class ScheduleAdjustmentEntry(db.Model):
+    """One actual day override; source days may be referenced repeatedly."""
+    __tablename__ = 'schedule_adjustment_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    adjustment_id = db.Column(
+        db.Integer,
+        db.ForeignKey('schedule_adjustments.id'),
+        nullable=False,
+        index=True,
+    )
+    semester = db.Column(db.String(20), db.ForeignKey('semesters.name'), nullable=False, index=True)
+    actual_week = db.Column(db.Integer, nullable=False)
+    actual_day = db.Column(db.Integer, nullable=False)
+    mode = db.Column(db.String(20), nullable=False)
+    source_week = db.Column(db.Integer, nullable=True)
+    source_day = db.Column(db.Integer, nullable=True)
+
+    adjustment = db.relationship('ScheduleAdjustment', back_populates='entries')
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'semester',
+            'actual_week',
+            'actual_day',
+            name='uq_schedule_adjustment_actual_day',
+        ),
+    )
+
+
+class ScheduleActivity(db.Model):
+    """Student-owned schedule activity, independent from courses and grades."""
+    __tablename__ = 'schedule_activities'
+
+    uuid = db.Column(db.String(50), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    semester = db.Column(db.String(20), db.ForeignKey('semesters.name'), nullable=False, index=True)
+    title = db.Column(db.String(100), nullable=False)
+    color = db.Column(db.String(20), nullable=False, default='green')
+    notes = db.Column(db.String(1000), nullable=True)
+    time_entries = db.Column(JSON, nullable=False, default=list)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship(
+        'User',
+        backref=db.backref('schedule_activities', cascade='all, delete-orphan'),
+    )
 
 # ==================== 课程名称映射表 ====================
 

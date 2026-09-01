@@ -23,7 +23,7 @@ function AdminLayout() {
   return (
     <div className="container">
       <nav className="navbar">
-        <div className="navbar-brand">选课与毕业审查系统 - 管理员</div>
+        <div className="navbar-brand">选课规划和进度审查系统 - 管理员</div>
         <div className="navbar-links">
           {navItems.map(item => (
             <Link
