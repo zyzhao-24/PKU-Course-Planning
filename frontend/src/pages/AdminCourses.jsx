@@ -3,10 +3,12 @@ import axios from '../utils/axios';
 import { useSemester } from '../contexts/SemesterContext';
 import { DEPARTMENT_CODE_MAP, formatClassTimes, WEEK_DAYS, WEEK_TYPES } from '../utils';
 import Modal from '../components/Modal';
+import SemesterSelector from '../components/SemesterSelector';
+import ScheduleAdjustmentManager from '../components/ScheduleAdjustmentManager';
 
 // 课程时段编辑器组件
 function ClassTimeEditor({ value = [], onChange }) {
-  const [times, setTimes] = useState(value);
+  const [times, setTimes] = useState(value || []);
 
   useEffect(() => {
     setTimes(value || []);
@@ -18,7 +20,10 @@ function ClassTimeEditor({ value = [], onChange }) {
   };
 
   const addTime = () => {
-    handleChange([...times, { day: 1, start_period: 1, end_period: 2, week_range: '1-16', week_type: 0 }]);
+    // Leave the day and periods for the user, while defaulting the common
+    // semester range and full-week selection.
+    // This button is inside CourseForm and must not submit the form.
+    handleChange([...times, { day: '', start_period: '', end_period: '', week_range: '1-16', week_type: 0 }]);
   };
 
   const removeTime = (index) => {
@@ -37,19 +42,22 @@ function ClassTimeEditor({ value = [], onChange }) {
         <div key={index} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginBottom: '10px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '6px' }}>
           <div>
             <label style={{ fontSize: '11px' }}>星期</label>
-            <select value={time.day} onChange={(e) => updateTime(index, 'day', parseInt(e.target.value))}>
+            <select value={time.day ?? ''} onChange={(e) => updateTime(index, 'day', e.target.value ? parseInt(e.target.value) : '')}>
+              <option value="">请选择</option>
               {[1,2,3,4,5,6,7].map(d => <option key={d} value={d}>{WEEK_DAYS[d]}</option>)}
             </select>
           </div>
           <div>
             <label style={{ fontSize: '11px' }}>开始节</label>
-            <select value={time.start_period} onChange={(e) => updateTime(index, 'start_period', parseInt(e.target.value))}>
+            <select value={time.start_period ?? ''} onChange={(e) => updateTime(index, 'start_period', e.target.value ? parseInt(e.target.value) : '')}>
+              <option value="">请选择</option>
               {Array.from({length: 12}, (_, i) => i + 1).map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
           <div>
             <label style={{ fontSize: '11px' }}>结束节</label>
-            <select value={time.end_period} onChange={(e) => updateTime(index, 'end_period', parseInt(e.target.value))}>
+            <select value={time.end_period ?? ''} onChange={(e) => updateTime(index, 'end_period', e.target.value ? parseInt(e.target.value) : '')}>
+              <option value="">请选择</option>
               {Array.from({length: 12}, (_, i) => i + 1).map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
@@ -64,18 +72,19 @@ function ClassTimeEditor({ value = [], onChange }) {
           </div>
           <div>
             <label style={{ fontSize: '11px' }}>单双周</label>
-            <select value={time.week_type || 0} onChange={(e) => updateTime(index, 'week_type', parseInt(e.target.value))}>
+            <select value={time.week_type ?? ''} onChange={(e) => updateTime(index, 'week_type', e.target.value === '' ? '' : parseInt(e.target.value))}>
+              <option value="">请选择</option>
               <option value={0}>全周</option>
               <option value={1}>单周</option>
               <option value={2}>双周</option>
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button className="btn btn-danger btn-sm" onClick={() => removeTime(index)}>删除</button>
+            <button type="button" className="btn btn-danger btn-sm" onClick={() => removeTime(index)}>删除</button>
           </div>
         </div>
       ))}
-      <button className="btn btn-secondary btn-sm" onClick={addTime}>+ 添加上课时段</button>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={addTime}>+ 添加上课时段</button>
     </div>
   );
 }
@@ -119,14 +128,14 @@ function CourseForm({ course, onSave, onCancel, semester }) {
     <form onSubmit={handleSubmit}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '15px', marginBottom: '15px' }}>
         <div className="form-group">
-          <label>执行计划编号 (UUID) *</label>
+          <label>执行计划编号 (UUID)</label>
           <input 
             type="text" 
             value={formData.uuid} 
             onChange={(e) => setFormData({...formData, uuid: e.target.value})}
             disabled={!!course?.uuid}
             style={course?.uuid ? { backgroundColor: '#f5f5f5' } : {}}
-            required
+            placeholder="留空时自动生成"
           />
         </div>
         <div className="form-group">
@@ -234,14 +243,664 @@ function CourseForm({ course, onSave, onCancel, semester }) {
   );
 }
 
+function SemesterManager({ showModal, closeModal, onCreateCourse, onClearCourses }) {
+  const {
+    semesters,
+    semesterConfigs,
+    selectedSemester,
+    setSelectedSemester,
+    refreshSemesters,
+  } = useSemester();
+  const [showCreate, setShowCreate] = useState(false);
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('1');
+  const [newMonday, setNewMonday] = useState('');
+  const [monday, setMonday] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
+
+  useEffect(() => {
+    const config = semesterConfigs[selectedSemester] || {};
+    setMonday(config.first_week_monday || '');
+  }, [selectedSemester, semesterConfigs]);
+
+  const createSemester = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setStatus('');
+    try {
+      const name = `${academicYear}-${term}`;
+      await axios.post('/api/admin/semesters', {
+        name,
+        academic_year: academicYear,
+        term: Number(term),
+        first_week_monday: newMonday,
+      });
+      await refreshSemesters();
+      setSelectedSemester(name);
+      setShowCreate(false);
+      setAcademicYear('');
+      setTerm('1');
+      setNewMonday('');
+      setStatus('学期创建成功');
+    } catch (err) {
+      setStatus(err.response?.data?.message || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateSemester = async () => {
+    if (!selectedSemester) return;
+    setSaving(true);
+    setStatus('');
+    try {
+      await axios.put(`/api/admin/semesters/${selectedSemester}`, {
+        first_week_monday: monday,
+      });
+      await refreshSemesters();
+      setStatus('学期信息已保存');
+    } catch (err) {
+      setStatus(err.response?.data?.message || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSemester = () => {
+    if (!selectedSemester) return;
+    const courseCount = semesterConfigs[selectedSemester]?.course_count || 0;
+    showModal(
+      '删除学期',
+      `确定删除 ${selectedSemester}？该学期的 ${courseCount} 条开课记录将一并删除。`,
+      async () => {
+        try {
+          await axios.delete(`/api/admin/semesters/${selectedSemester}`);
+          closeModal();
+          await refreshSemesters();
+          setStatus('学期已删除');
+        } catch (err) {
+          closeModal();
+          setStatus(err.response?.data?.message || err.message);
+        }
+      },
+      true,
+      'btn btn-danger',
+    );
+  };
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0 }}>学期管理</h3>
+            <SemesterSelector compact />
+          </div>
+          <div style={{ marginTop: '5px', color: '#64748b', fontSize: '13px' }}>
+            {selectedSemester
+              ? `${selectedSemester} · ${semesterConfigs[selectedSemester]?.course_count || 0} 条开课记录`
+              : '尚未创建学期'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onCreateCourse} disabled={!selectedSemester}>+ 创建课程</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowCreate(value => !value)}>
+            {showCreate ? '取消创建' : '+ 新建学期'}
+          </button>
+        </div>
+      </div>
+
+      {showCreate && (
+        <form onSubmit={createSemester} style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+            <div className="form-group">
+              <label>学年</label>
+              <input value={academicYear} onChange={event => setAcademicYear(event.target.value)} placeholder="26-27" required />
+            </div>
+            <div className="form-group">
+              <label>学期</label>
+              <select value={term} onChange={event => setTerm(event.target.value)}>
+                <option value="1">第一学期</option>
+                <option value="2">第二学期</option>
+                <option value="3">第三学期</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>第一周周一</label>
+              <input type="date" value={newMonday} onChange={event => setNewMonday(event.target.value)} required />
+            </div>
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={saving}>创建学期</button>
+        </form>
+      )}
+
+      {selectedSemester && !showCreate && (
+        <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            <div className="form-group">
+              <label>第一周周一</label>
+              <input type="date" value={monday} onChange={event => setMonday(event.target.value)} required />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" className="btn btn-primary" onClick={updateSemester} disabled={saving}>保存学期信息</button>
+            <button type="button" className="btn btn-secondary" onClick={onClearCourses} disabled={saving}>清空课程</button>
+            <button type="button" className="btn btn-danger" onClick={deleteSemester} disabled={saving}>删除学期</button>
+          </div>
+        </div>
+      )}
+
+      {status && <div style={{ marginTop: '12px', color: status.includes('成功') || status.includes('保存') || status.includes('删除') ? '#2f855a' : '#c62828', fontSize: '13px' }}>{status}</div>}
+      <ScheduleAdjustmentManager showModal={showModal} closeModal={closeModal} />
+      {semesters.length === 0 && !showCreate && <div style={{ marginTop: '16px', color: '#64748b' }}>请先创建学期，再导入课程。</div>}
+    </div>
+  );
+}
+
+function CollegeEnglishPoolManager() {
+  const [items, setItems] = useState([]);
+  const [modules, setModules] = useState([]);
+  const [moduleFilter, setModuleFilter] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState({
+    course_id: '',
+    course_name: '',
+    module: 'C',
+    active: true,
+    notes: '',
+    order_index: 0
+  });
+  const [courseSearch, setCourseSearch] = useState('');
+  const [courseSearchResults, setCourseSearchResults] = useState([]);
+
+  useEffect(() => {
+    fetchPool();
+  }, [moduleFilter]);
+
+  const fetchPool = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/college-english/pool', {
+        params: {
+          module: moduleFilter || undefined,
+          keyword: keyword || undefined,
+          include_inactive: true
+        }
+      });
+      setItems(res.data.items || []);
+      setModules(res.data.modules || []);
+    } catch (err) {
+      setStatus('大学英语课程池加载失败: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setFormData({
+      course_id: '',
+      course_name: '',
+      module: modules[0]?.value || 'C',
+      active: true,
+      notes: '',
+      order_index: 0
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setStatus('');
+    try {
+      if (editingId) {
+        await axios.put(`/api/college-english/pool/${editingId}`, formData);
+        setStatus('大学英语课程池条目已更新');
+      } else {
+        await axios.post('/api/college-english/pool', formData);
+        setStatus('大学英语课程池条目已新增');
+      }
+      resetForm();
+      fetchPool();
+    } catch (err) {
+      setStatus('保存失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setFormData({
+      course_id: item.course_id,
+      course_name: item.course_name,
+      module: item.module,
+      active: item.active,
+      notes: item.notes || '',
+      order_index: item.order_index || 0
+    });
+  };
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`确定删除 ${item.course_name} 吗？`)) return;
+    try {
+      await axios.delete(`/api/college-english/pool/${item.id}`);
+      setStatus('已删除大学英语课程池条目');
+      fetchPool();
+    } catch (err) {
+      setStatus('删除失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const toggleActive = async (item) => {
+    try {
+      await axios.put(`/api/college-english/pool/${item.id}`, { active: !item.active });
+      fetchPool();
+    } catch (err) {
+      setStatus('状态更新失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const resetDefaults = async () => {
+    if (!window.confirm('确定恢复默认大学英语课程池吗？当前课程池会被替换。')) return;
+    try {
+      const res = await axios.post('/api/college-english/pool/reset-defaults');
+      setItems(res.data.items || []);
+      setStatus(`已恢复默认课程池，共 ${res.data.created || 0} 条`);
+      resetForm();
+    } catch (err) {
+      setStatus('恢复默认失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const searchCourses = async () => {
+    if (!courseSearch.trim()) {
+      setCourseSearchResults([]);
+      return;
+    }
+    try {
+      const res = await axios.get('/api/courses', {
+        params: {
+          per_page: 10,
+          distinct_mode: 'true',
+          ...(courseSearch.trim().match(/^[A-Za-z0-9]+$/)
+            ? { course_id: courseSearch.trim() }
+            : { course_name: courseSearch.trim() })
+        }
+      });
+      setCourseSearchResults(res.data.courses || []);
+    } catch (err) {
+      setStatus('课程搜索失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const moduleName = (moduleValue) => modules.find(m => m.value === moduleValue)?.label || moduleValue;
+
+  return (
+    <div className="card requirement-pool">
+      <div className="requirement-pool__header">
+        <h2>大学英语课程池</h2>
+        <button className="btn btn-secondary btn-sm" onClick={resetDefaults}>恢复默认</button>
+      </div>
+
+      <div className="requirement-pool__layout">
+        <section className="requirement-pool__editor" aria-label="大学英语课程编辑">
+          <h3>{editingId ? '编辑课程' : '新增课程'}</h3>
+          <form onSubmit={handleSubmit} className="requirement-pool__form">
+          <div className="form-group">
+            <label>课程号</label>
+            <input
+              value={formData.course_id}
+              onChange={e => setFormData({ ...formData, course_id: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>课程名称</label>
+            <input
+              value={formData.course_name}
+              onChange={e => setFormData({ ...formData, course_name: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>模块</label>
+            <select value={formData.module} onChange={e => setFormData({ ...formData, module: e.target.value })}>
+              {modules.map(module => (
+                <option key={module.value} value={module.value}>{module.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>排序</label>
+            <input
+              type="number"
+              value={formData.order_index}
+              onChange={e => setFormData({ ...formData, order_index: parseInt(e.target.value) || 0 })}
+            />
+          </div>
+          <label className="requirement-pool__checkbox">
+            <input
+              type="checkbox"
+              checked={formData.active}
+              onChange={e => setFormData({ ...formData, active: e.target.checked })}
+            />
+            启用
+          </label>
+          <div className="form-group">
+            <label>备注</label>
+            <input
+              value={formData.notes}
+              onChange={e => setFormData({ ...formData, notes: e.target.value })}
+            />
+          </div>
+          <div className="requirement-pool__form-actions">
+            <button className="btn btn-primary btn-sm" type="submit">{editingId ? '保存修改' : '新增课程'}</button>
+            {editingId && <button className="btn btn-secondary btn-sm" type="button" onClick={resetForm}>取消编辑</button>}
+          </div>
+
+          <div className="requirement-pool__lookup">
+            <label>从课程主数据搜索</label>
+            <div className="requirement-pool__lookup-controls">
+              <input
+                value={courseSearch}
+                onChange={e => setCourseSearch(e.target.value)}
+                placeholder="课程号或课程名"
+              />
+              <button type="button" className="btn btn-secondary btn-sm" onClick={searchCourses}>搜索</button>
+            </div>
+            {courseSearchResults.length > 0 && (
+              <div className="requirement-pool__lookup-results">
+                {courseSearchResults.map(course => (
+                  <button
+                    key={course.uuid}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, course_id: course.course_id, course_name: course.course_name })}
+                    className="requirement-pool__lookup-result"
+                  >
+                    {course.course_id} {course.course_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          </form>
+        </section>
+
+        <section className="requirement-pool__catalog" aria-label="大学英语课程列表">
+          <h3>课程列表</h3>
+          <div className="requirement-pool__filters">
+            <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)}>
+              <option value="">全部模块</option>
+              {modules.map(module => (
+                <option key={module.value} value={module.value}>{module.label}</option>
+              ))}
+            </select>
+            <input
+              value={keyword}
+              onChange={e => setKeyword(e.target.value)}
+              placeholder="搜索课程号或课程名"
+            />
+            <button className="btn btn-secondary btn-sm" onClick={fetchPool}>筛选</button>
+          </div>
+
+          {loading ? <div className="requirement-pool__state">加载中...</div> : (
+            <div className="table-container requirement-pool__table-container">
+              <table className="requirement-pool__table">
+                <thead>
+                  <tr>
+                    <th>模块</th>
+                    <th>课程号</th>
+                    <th>课程名</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(item => (
+                    <tr key={item.id} style={{ opacity: item.active ? 1 : 0.55 }}>
+                      <td>{moduleName(item.module)}</td>
+                      <td>{item.course_id}</td>
+                      <td>{item.course_name}</td>
+                      <td>{item.active ? '启用' : '停用'}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          <button className="btn btn-primary btn-sm" onClick={() => handleEdit(item)}>编辑</button>
+                          <button className="btn btn-secondary btn-sm" onClick={() => toggleActive(item)}>
+                            {item.active ? '停用' : '启用'}
+                          </button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)}>删除</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {items.length === 0 && <div className="requirement-pool__state">暂无课程池条目</div>}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {status && <div className={`requirement-pool__status${status.includes('失败') ? ' is-error' : ''}`} role="status">{status}</div>}
+    </div>
+  );
+}
+
+function LaborEducationPoolManager() {
+  const [items, setItems] = useState([]);
+  const [systems, setSystems] = useState([]);
+  const [systemFilter, setSystemFilter] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState({
+    course_id: '',
+    course_name: '',
+    course_system: '',
+    credits: 0,
+    labor_hours: 0,
+  });
+
+  const fetchPool = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/labor-education/pool', {
+        params: {
+          course_system: systemFilter || undefined,
+          keyword: keyword || undefined,
+        },
+      });
+      setItems(res.data.items || []);
+      setSystems(res.data.course_systems || []);
+    } catch (err) {
+      setStatus('劳动教育课程池加载失败: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPool();
+  }, [systemFilter]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setFormData({
+      course_id: '',
+      course_name: '',
+      course_system: systems[0] || '',
+      credits: 0,
+      labor_hours: 0,
+    });
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setStatus('');
+    try {
+      const payload = {
+        ...formData,
+        credits: Number(formData.credits),
+        labor_hours: Number(formData.labor_hours),
+      };
+      if (editingId) {
+        await axios.put(`/api/labor-education/pool/${editingId}`, payload);
+        setStatus('劳动教育课程已更新');
+      } else {
+        await axios.post('/api/labor-education/pool', payload);
+        setStatus('劳动教育课程已新增');
+      }
+      resetForm();
+      fetchPool();
+    } catch (err) {
+      setStatus('保存失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setFormData({
+      course_id: item.course_id,
+      course_name: item.course_name,
+      course_system: item.course_system,
+      credits: item.credits,
+      labor_hours: item.labor_hours,
+    });
+  };
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`确定删除 ${item.course_name} 吗？`)) return;
+    try {
+      await axios.delete(`/api/labor-education/pool/${item.id}`);
+      setStatus('劳动教育课程已删除');
+      fetchPool();
+    } catch (err) {
+      setStatus('删除失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const resetDefaults = async () => {
+    if (!window.confirm('确定恢复默认劳动教育课程池吗？当前课程池会被替换。')) return;
+    try {
+      const res = await axios.post('/api/labor-education/pool/reset-defaults');
+      setItems(res.data.items || []);
+      setStatus(`已恢复默认课程池，共 ${res.data.created || 0} 条`);
+      resetForm();
+    } catch (err) {
+      setStatus('恢复默认失败: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  return (
+    <div className="card requirement-pool">
+      <div className="requirement-pool__header">
+        <h2>劳动教育课程池</h2>
+        <button className="btn btn-secondary btn-sm" onClick={resetDefaults}>恢复默认</button>
+      </div>
+
+      <div className="requirement-pool__layout">
+        <section className="requirement-pool__editor" aria-label="劳动教育课程编辑">
+          <h3>{editingId ? '编辑课程' : '新增课程'}</h3>
+          <form onSubmit={handleSubmit} className="requirement-pool__form">
+          <div className="form-group">
+            <label>课程号</label>
+            <input value={formData.course_id} onChange={e => setFormData({ ...formData, course_id: e.target.value })} required maxLength={8} />
+          </div>
+          <div className="form-group">
+            <label>课程名称</label>
+            <input value={formData.course_name} onChange={e => setFormData({ ...formData, course_name: e.target.value })} required />
+          </div>
+          <div className="form-group">
+            <label>课程体系</label>
+            <input value={formData.course_system} onChange={e => setFormData({ ...formData, course_system: e.target.value })} required list="labor-course-systems" />
+            <datalist id="labor-course-systems">
+              {systems.map(system => <option key={system} value={system} />)}
+            </datalist>
+          </div>
+          <div className="requirement-pool__field-row">
+            <div className="form-group">
+              <label>学分</label>
+              <input type="number" min="0" step="0.5" value={formData.credits} onChange={e => setFormData({ ...formData, credits: e.target.value })} required />
+            </div>
+            <div className="form-group">
+              <label>劳动学时</label>
+              <input type="number" min="0" step="1" value={formData.labor_hours} onChange={e => setFormData({ ...formData, labor_hours: e.target.value })} required />
+            </div>
+          </div>
+          <div className="requirement-pool__form-actions">
+            <button className="btn btn-primary btn-sm" type="submit">{editingId ? '保存修改' : '新增课程'}</button>
+            {editingId && <button className="btn btn-secondary btn-sm" type="button" onClick={resetForm}>取消编辑</button>}
+          </div>
+          </form>
+        </section>
+
+        <section className="requirement-pool__catalog" aria-label="劳动教育课程列表">
+          <h3>课程列表</h3>
+          <div className="requirement-pool__filters">
+            <select value={systemFilter} onChange={e => setSystemFilter(e.target.value)}>
+              <option value="">全部课程体系</option>
+              {systems.map(system => <option key={system} value={system}>{system}</option>)}
+            </select>
+            <input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="搜索课程号或课程名" />
+            <button className="btn btn-secondary btn-sm" onClick={fetchPool}>筛选</button>
+          </div>
+          {loading ? <div className="requirement-pool__state">加载中...</div> : (
+            <div className="table-container requirement-pool__table-container">
+              <table className="requirement-pool__table">
+                <thead>
+                  <tr><th>课程体系</th><th>课程号</th><th>课程名称</th><th>学分</th><th>劳动学时</th><th>操作</th></tr>
+                </thead>
+                <tbody>
+                  {items.map(item => (
+                    <tr key={item.id}>
+                      <td>{item.course_system}</td>
+                      <td>{item.course_id}</td>
+                      <td>{item.course_name}</td>
+                      <td>{item.credits}</td>
+                      <td>{item.labor_hours}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button className="btn btn-primary btn-sm" onClick={() => handleEdit(item)}>编辑</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)}>删除</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {items.length === 0 && <div className="requirement-pool__state">暂无课程池条目</div>}
+            </div>
+          )}
+        </section>
+      </div>
+      {status && <div className={`requirement-pool__status${status.includes('失败') ? ' is-error' : ''}`} role="status">{status}</div>}
+    </div>
+  );
+}
+
 function AdminCourses() {
-  const { selectedSemester } = useSemester();
+  const {
+    semesters,
+    selectedSemester,
+    setSelectedSemester,
+    refreshSemesters,
+  } = useSemester();
   const [courses, setCourses] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [importStatus, setImportStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [sourceSemester, setSourceSemester] = useState('');
+  const [targetMode, setTargetMode] = useState('source');
+  const [targetAcademicYear, setTargetAcademicYear] = useState('');
+  const [importMode, setImportMode] = useState('append');
+  const [importMonday, setImportMonday] = useState('');
+  const [importing, setImporting] = useState(false);
   const fileInputRef = useRef();
 
   // Search States
@@ -328,41 +987,71 @@ function AdminCourses() {
     }
   };
 
-  const handleFileUpload = async (files) => {
-    if (!files || files.length === 0) return;
+  const targetSemester = (() => {
+    if (!sourceSemester) return '';
+    if (targetMode === 'source') return sourceSemester;
+    const term = sourceSemester.split('-')[2];
+    return targetAcademicYear ? `${targetAcademicYear}-${term}` : '';
+  })();
+  const targetSemesterExists = !!targetSemester && semesters.includes(targetSemester);
 
-    const fileList = Array.from(files);
-    setImportStatus(`正在导入 ${fileList.length} 个文件...`);
-
-    let successCount = 0;
-    let errorMessages = [];
-
-    for (const file of fileList) {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const res = await axios.post('/api/admin/courses/import', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        successCount++;
-      } catch (err) {
-        errorMessages.push(`${file.name}: ${err.response?.data?.message || err.message}`);
+  const handleFileSelection = async (file) => {
+    if (!file) return;
+    setImportStatus('');
+    try {
+      const payload = JSON.parse(await file.text());
+      const semester = payload?.metadata?.yearandseme;
+      if (!/^\d{2}-\d{2}-[123]$/.test(semester || '') || !Array.isArray(payload?.courses)) {
+        throw new Error('JSON 必须包含 metadata.yearandseme 和 courses 数组');
       }
+      setImportFile(file);
+      setSourceSemester(semester);
+      setTargetMode('source');
+      setTargetAcademicYear('');
+      setImportMonday('');
+    } catch (err) {
+      setImportFile(null);
+      setSourceSemester('');
+      setImportStatus(err.message || '无法读取 JSON');
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile || !targetSemester) {
+      setImportStatus('请选择课程 JSON 和目标学期');
+      return;
+    }
+    if (!targetSemesterExists && !importMonday) {
+      setImportStatus('目标学期不存在，请提供第一周周一日期');
+      return;
     }
 
-    if (errorMessages.length > 0) {
-      setImportStatus(`导入完成: ${successCount}/${fileList.length} 成功\n错误:\n${errorMessages.join('\n')}`);
-    } else {
-      setImportStatus(`成功导入 ${successCount} 个文件`);
+    setImporting(true);
+    setImportStatus('正在导入...');
+    const formData = new FormData();
+    formData.append('file', importFile);
+    formData.append('import_mode', targetSemesterExists ? importMode : 'append');
+    if (targetMode === 'other') {
+      formData.append('target_academic_year', targetAcademicYear);
     }
-    
-    fetchCourses();
-    fetchCourseTypes();
-    
-    // 重置文件输入
-    if (fileInputRef.current) {
-      fileInputRef.current.value = null;
+    if (!targetSemesterExists) {
+      formData.append('first_week_monday', importMonday);
+    }
+
+    try {
+      const res = await axios.post('/api/admin/courses/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setImportStatus(res.data.message);
+      await refreshSemesters();
+      setSelectedSemester(res.data.target_semester);
+      setImportFile(null);
+      setSourceSemester('');
+      if (fileInputRef.current) fileInputRef.current.value = null;
+    } catch (err) {
+      setImportStatus(err.response?.data?.message || err.message);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -371,10 +1060,7 @@ function AdminCourses() {
     e.stopPropagation();
     setIsDragging(false);
     
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      handleFileUpload(files);
-    }
+    handleFileSelection(e.dataTransfer.files?.[0]);
   };
 
   const handleDragOver = (e) => {
@@ -475,20 +1161,17 @@ function AdminCourses() {
         {modal.content}
       </Modal>
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h3 style={{ margin: 0 }}>课程管理 - {selectedSemester}</h3>
-          <button className="btn btn-primary" onClick={handleCreate}>+ 创建课程</button>
+      <div className="card management-import-card">
+        <div className="management-import-card__header">
+          <h2>课程与学期管理</h2>
         </div>
-      </div>
-
-      <div className="card">
-        <h3>数据导入</h3>
-        <div 
+        <section className="management-import-card__section" aria-labelledby="course-data-import-title">
+          <h3 id="course-data-import-title" className="management-import-card__section-title">课程 JSON 导入</h3>
+          <div
           className="import-area" 
           style={{ 
             border: isDragging ? '2px dashed #0067c0' : '2px dashed #e0e0e0', 
-            borderRadius: '8px', 
+            borderRadius: '0 0 8px 8px',
             padding: '30px 20px', 
             textAlign: 'center',
             backgroundColor: isDragging ? '#f0f7ff' : '#fafafa',
@@ -506,23 +1189,82 @@ function AdminCourses() {
           <input 
             type="file" 
             ref={fileInputRef}
-            accept=".json"
-            multiple
-            onChange={(e) => handleFileUpload(e.target.files)}
+            accept=".json,application/json"
+            onChange={(e) => handleFileSelection(e.target.files?.[0])}
             style={{ display: 'none' }}
           />
-          <div style={{ fontSize: '32px', marginBottom: '10px' }}>📂</div>
           <div style={{ fontWeight: '600', color: '#333', marginBottom: '5px' }}>
-            {isDragging ? '释放以上传文件' : '点击或拖拽上传课程数据文件'}
+            {isDragging ? '释放以选择文件' : (importFile ? importFile.name : '点击或拖拽选择课程 JSON')}
           </div>
-          <div style={{ fontSize: '13px', color: '#888' }}>支持 .json 格式，可多选文件</div>
+          <div style={{ fontSize: '13px', color: '#888' }}>
+            {sourceSemester ? `JSON 标识学期：${sourceSemester}` : '请选择由课程数据工具生成的 JSON 文件'}
+          </div>
         </div>
-        {importStatus && <p style={{ marginTop: '10px', color: '#666', fontSize: '14px' }}>{importStatus}</p>}
-        
-        <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-          <button className="btn btn-danger" onClick={handleClearSemester}>清空学期</button>
-        </div>
+
+          {importFile && (
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+            <div className="form-group">
+              <label>目标学期</label>
+              <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+                <button type="button" onClick={() => setTargetMode('source')} style={{ border: 'none', padding: '8px 14px', background: targetMode === 'source' ? '#0067c0' : '#fff', color: targetMode === 'source' ? '#fff' : '#334155', cursor: 'pointer' }}>按 JSON 学期</button>
+                <button type="button" onClick={() => setTargetMode('other')} style={{ border: 'none', borderLeft: '1px solid #cbd5e1', padding: '8px 14px', background: targetMode === 'other' ? '#0067c0' : '#fff', color: targetMode === 'other' ? '#fff' : '#334155', cursor: 'pointer' }}>改用其他学年</button>
+              </div>
+            </div>
+
+            {targetMode === 'other' && (
+              <div className="form-group" style={{ maxWidth: '260px' }}>
+                <label>目标学年</label>
+                <input value={targetAcademicYear} onChange={event => setTargetAcademicYear(event.target.value)} placeholder="27-28" />
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              {targetSemesterExists && (
+                <div className="form-group">
+                  <label>导入方式</label>
+                  <select value={importMode} onChange={event => setImportMode(event.target.value)}>
+                    <option value="append">追加：保留未出现在 JSON 中的班级</option>
+                    <option value="overwrite">覆盖：删除未出现在 JSON 中的班级</option>
+                  </select>
+                </div>
+              )}
+              <div className="form-group">
+                <label>实际目标学期</label>
+                <input value={targetSemester} disabled />
+              </div>
+              {!targetSemesterExists && targetSemester && (
+                <div className="form-group">
+                  <label>新学期第一周周一</label>
+                  <input type="date" value={importMonday} onChange={event => setImportMonday(event.target.value)} required />
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-primary" onClick={handleImport} disabled={importing || !targetSemester}>
+                {importing
+                  ? '导入中...'
+                  : (!targetSemesterExists ? '导入并创建学期' : (importMode === 'overwrite' ? '覆盖导入' : '追加导入'))}
+              </button>
+              <span style={{ color: targetSemesterExists ? '#2f855a' : '#b45309', fontSize: '13px' }}>
+                {targetSemester
+                  ? (targetSemesterExists ? '目标学期已存在' : '目标学期不存在，将同时创建')
+                  : '请输入目标学年'}
+              </span>
+            </div>
+          </div>
+        )}
+
+          {importStatus && <p style={{ marginTop: '12px', color: importStatus.includes('完成') ? '#2f855a' : '#c62828', fontSize: '14px', whiteSpace: 'pre-line' }}>{importStatus}</p>}
+        </section>
       </div>
+
+      <SemesterManager
+        showModal={showModal}
+        closeModal={closeModal}
+        onCreateCourse={handleCreate}
+        onClearCourses={handleClearSemester}
+      />
 
       <div className="card">
         <h3>筛选条件</h3>
@@ -630,4 +1372,5 @@ function AdminCourses() {
   );
 }
 
+export { CollegeEnglishPoolManager, LaborEducationPoolManager };
 export default AdminCourses;

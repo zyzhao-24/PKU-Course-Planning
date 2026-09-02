@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from '../utils/axios';
 import Modal from '../components/Modal';
@@ -197,6 +198,173 @@ function SearchableSelect({ options, value, onChange, placeholder = '请选择..
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function CourseLookupInput({ value, onChange, onSelect, allCourses, placeholder }) {
+  const [focused, setFocused] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const containerRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const query = (value || '').trim().toLowerCase();
+
+  const updateDropdownPosition = () => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const viewportPadding = 12;
+    const desiredWidth = Math.max(rect.width, 360);
+    const width = Math.min(desiredWidth, window.innerWidth - viewportPadding * 2);
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+    const spaceAbove = rect.top - viewportPadding;
+    const maxHeight = Math.max(180, Math.min(320, Math.max(spaceBelow, spaceAbove)));
+    const opensUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+
+    setDropdownStyle({
+      position: 'fixed',
+      zIndex: 3000,
+      left,
+      top: opensUp ? 'auto' : rect.bottom + 6,
+      bottom: opensUp ? window.innerHeight - rect.top + 6 : 'auto',
+      width,
+      maxHeight,
+    });
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target)
+      ) {
+        setFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!focused || !query) {
+      setDropdownStyle(null);
+      return undefined;
+    }
+
+    updateDropdownPosition();
+    window.addEventListener('resize', updateDropdownPosition);
+    window.addEventListener('scroll', updateDropdownPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition);
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+    };
+  }, [focused, suggestions.length, loadingSuggestions, value, query]);
+
+  useEffect(() => {
+    if (!query) {
+      setSuggestions([]);
+      setLoadingSuggestions(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadingSuggestions(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await axios.get('/api/courses', {
+          params: { per_page: 80, q: query, distinct_mode: 'true' }
+        });
+        if (cancelled) return;
+        const courses = res.data.courses || [];
+        const uniqueCourses = courses.filter(
+          (course, index, self) => index === self.findIndex(item => item.course_id === course.course_id)
+        );
+        setSuggestions(uniqueCourses.slice(0, 30));
+      } catch (err) {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setLoadingSuggestions(false);
+      }
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
+
+  const dropdown = focused && query && dropdownStyle ? (
+    <div
+      ref={dropdownRef}
+      style={{
+        ...dropdownStyle,
+        overflowY: 'auto',
+        backgroundColor: 'white',
+        border: '1px solid #b6c2d1',
+        borderRadius: '8px',
+        boxShadow: '0 18px 45px rgba(15, 23, 42, 0.22)',
+        padding: '6px',
+      }}
+    >
+      {loadingSuggestions && (
+        <div style={{ padding: '10px', color: '#64748b', fontSize: '13px' }}>检索中...</div>
+      )}
+      {!loadingSuggestions && suggestions.length === 0 && (
+        <div style={{ padding: '10px', color: '#64748b', fontSize: '13px' }}>没有匹配课程</div>
+      )}
+      {!loadingSuggestions && suggestions.map(course => (
+        <button
+          type="button"
+          key={course.course_id}
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => {
+            onSelect(course);
+            setFocused(false);
+          }}
+          style={{
+            width: '100%',
+            border: 'none',
+            backgroundColor: 'white',
+            textAlign: 'left',
+            padding: '9px 10px',
+            cursor: 'pointer',
+            borderRadius: '6px',
+            fontFamily: 'inherit',
+            marginBottom: '2px'
+          }}
+          onMouseEnter={event => { event.currentTarget.style.backgroundColor = '#eef6ff'; }}
+          onMouseLeave={event => { event.currentTarget.style.backgroundColor = 'white'; }}
+        >
+          <div style={{ fontWeight: 600, fontSize: '13px', color: '#1f2937' }}>
+            {course.course_id} - {course.course_name}
+          </div>
+          <div style={{ color: '#64748b', fontSize: '12px', marginTop: '3px', lineHeight: 1.4 }}>
+            {DEPARTMENT_CODE_MAP[course.department_code] || course.department_code || '未知院系'} · {course.course_type || '未知类型'} · {course.credits ?? '-'} 学分 · {course.semester || '未知学期'}
+          </div>
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <input
+        value={value || ''}
+        onFocus={() => setFocused(true)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setFocused(true);
+        }}
+        placeholder={placeholder}
+      />
+      {dropdown && createPortal(dropdown, document.body)}
     </div>
   );
 }
@@ -1258,9 +1426,105 @@ function RuleBuilder({ value, onChange, type = 'courselist', childNodes = [], al
 function AdminProgramEdit() {
   const { id } = useParams();
   const navigate = useNavigate();
+
+  const emptyProgramForm = () => ({
+    name: '',
+    dept: '',
+    channel: 0,
+    year: new Date().getFullYear(),
+    total_credits: '',
+    source_info: {},
+    program_metadata: {},
+    raw_payload: {},
+    import_warnings: []
+  });
+
+  const emptyCategoryForm = () => ({
+    name: '',
+    order_index: 0,
+    raw: '',
+    remark: null,
+    requirement_raw: '',
+    requirement_type: '',
+    requirement_min: '',
+    requirement_max: '',
+    source_excel_row: ''
+  });
+
+  const emptyNodeForm = () => ({
+    name: '',
+    order_index: 0,
+    parent_id: null,
+    raw: '',
+    node_kind: 'module',
+    remark: null,
+    requirement_raw: '',
+    requirement_type: '',
+    requirement_min: '',
+    requirement_max: '',
+    source_excel_row: '',
+    rules_raw: [],
+    qualification_rules: []
+  });
+
+  const emptyCourseListForm = () => ({
+    name: '',
+    order_index: 0,
+    raw: '',
+    remark: null,
+    course_category: '',
+    requirement_raw: '',
+    requirement_type: '',
+    requirement_min: '',
+    requirement_max: '',
+    source_excel_row: '',
+    selection_rule: {},
+    is_dissertation: false,
+    filters: {},
+    max_courses: null,
+    is_repeatable: false,
+    qualification_rules: [],
+    course_options: []
+  });
+
+  const emptyCourseOptionForm = () => ({
+    course_id: '',
+    course_name: '',
+    credits: '',
+    total_hours: '',
+    practice_total_hours: '',
+    semester: '',
+    source_excel_row: '',
+    raw_payload: {},
+    order_index: 0
+  });
+
+  const emptyRequirementRuleForm = () => ({
+    owner_type: 'program',
+    owner_id: '',
+    raw: '',
+    parsed: {},
+    target_names: [],
+    metric: '',
+    operator: '',
+    value: '',
+    order_index: 0,
+    source_excel_row: ''
+  });
+
+  const emptyMutualExclusionForm = () => ({
+    owner_type: 'program',
+    owner_id: '',
+    raw: '',
+    strategy: {},
+    items: [],
+    order_index: 0,
+    source_excel_row: ''
+  });
   
   // 程序基本信息
   const [program, setProgram] = useState(null);
+  const [programForm, setProgramForm] = useState(emptyProgramForm());
   const [categories, setCategories] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
   const [allNodes, setAllNodes] = useState([]);
@@ -1288,16 +1552,12 @@ function AdminProgramEdit() {
   const [expandedNodes, setExpandedNodes] = useState(new Set());
 
   // 表单状态
-  const [categoryForm, setCategoryForm] = useState({ name: '', order_index: 0 });
-  const [nodeForm, setNodeForm] = useState({ name: '', order_index: 0, qualification_rules: [] });
-  const [courseListForm, setCourseListForm] = useState({
-    name: '',
-    is_dissertation: false,
-    filters: {},
-    max_courses: null,
-    is_repeatable: false,
-    qualification_rules: []
-  });
+  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm());
+  const [nodeForm, setNodeForm] = useState(emptyNodeForm());
+  const [courseListForm, setCourseListForm] = useState(emptyCourseListForm());
+  const [courseOptionForm, setCourseOptionForm] = useState(emptyCourseOptionForm());
+  const [requirementRuleForm, setRequirementRuleForm] = useState(emptyRequirementRuleForm());
+  const [mutualExclusionForm, setMutualExclusionForm] = useState(emptyMutualExclusionForm());
   // 子节点名称单独状态，避免与编辑节点名称联动
   const [childNodeName, setChildNodeName] = useState('');
   // 新课程列表名称单独状态，避免与编辑课程列表名称联动
@@ -1313,29 +1573,21 @@ function AdminProgramEdit() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [programRes, categoriesRes] = await Promise.all([
-        axios.get(`/api/admin/programs/${id}`),
-        axios.get(`/api/admin/programs/${id}/categories`)
-      ]);
-      
-      setProgram(programRes.data.program);
-      
-      // 获取每个类别的节点树
-      const categoriesList = categoriesRes.data.categories || [];
-      const categoriesWithNodes = await Promise.all(
-        categoriesList.map(async (cat) => {
-          try {
-            const nodesRes = await axios.get(`/api/admin/categories/${cat.id}/nodes`);
-            return {
-              ...cat,
-              nodes: nodesRes.data.nodes || []
-            };
-          } catch (err) {
-            console.error(`获取类别 ${cat.id} 的节点失败`, err);
-            return { ...cat, nodes: [] };
-          }
-        })
-      );
+      const programRes = await axios.get(`/api/admin/programs/${id}/full`);
+      const nextProgram = programRes.data.program;
+      const categoriesWithNodes = nextProgram.categories || [];
+      setProgram(nextProgram);
+      setProgramForm({
+        name: nextProgram.name || '',
+        dept: nextProgram.dept || '',
+        channel: nextProgram.channel ?? 0,
+        year: nextProgram.year || new Date().getFullYear(),
+        total_credits: nextProgram.total_credits ?? '',
+        source_info: nextProgram.source_info || {},
+        program_metadata: nextProgram.program_metadata || {},
+        raw_payload: nextProgram.raw_payload || {},
+        import_warnings: nextProgram.import_warnings || []
+      });
       
       setCategories(categoriesWithNodes);
       
@@ -1346,7 +1598,7 @@ function AdminProgramEdit() {
           nodes.push({ id: node.id, name: node.name, type: 'node' });
           if (node.course_lists) {
             node.course_lists.forEach(cl => {
-              nodes.push({ id: cl.id, name: cl.name, type: 'courselist', parentId: node.id });
+              nodes.push({ id: cl.id, name: cl.name, type: 'courselist', parentId: node.id, course_options: cl.course_options || [] });
             });
           }
           if (node.children) {
@@ -1367,8 +1619,8 @@ function AdminProgramEdit() {
 
   const fetchAllCourses = async () => {
     try {
-      // 获取所有课程（不分页）
-      const res = await axios.get('/api/courses');
+      // 获取课程摘要用于规则描述和筛选项
+      const res = await axios.get('/api/courses', { params: { per_page: 5000, distinct_mode: 'true' } });
       setAllCourses(res.data.courses || []);
     } catch (err) {
       console.error('获取课程列表失败', err);
@@ -1379,6 +1631,116 @@ function AdminProgramEdit() {
     setModal({ isOpen: true, title, content, onConfirm, showCancel });
   };
 
+  const numberOrNull = (value) => value === '' || value === null || value === undefined ? null : Number(value);
+  const intOrNull = (value) => value === '' || value === null || value === undefined ? null : parseInt(value);
+
+  const handleUpdateProgram = async () => {
+    if (!programForm.name.trim()) return;
+    setSaving(true);
+    try {
+      const res = await axios.put(`/api/admin/programs/${id}`, {
+        ...programForm,
+        year: parseInt(programForm.year) || 0,
+        channel: parseInt(programForm.channel) || 0,
+        total_credits: numberOrNull(programForm.total_credits)
+      });
+      setProgram(res.data.program);
+      setCategories(res.data.program.categories || []);
+      showModal('成功', '方案信息已保存', () => setModal(m => ({ ...m, isOpen: false })), false);
+    } catch (err) {
+      showModal('错误', '保存方案信息失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const commonRequirementPayload = (form) => ({
+    raw: form.raw || null,
+    remark: form.remark,
+    requirement_raw: form.requirement_raw || null,
+    requirement_type: form.requirement_type || null,
+    requirement_min: numberOrNull(form.requirement_min),
+    requirement_max: numberOrNull(form.requirement_max),
+    source_excel_row: intOrNull(form.source_excel_row)
+  });
+
+  const renderImportedFieldEditor = (form, setForm, options = {}) => (
+    <>
+      <div className="form-row">
+        <div className="form-group">
+          <label>原始要求</label>
+          <input
+            value={form.requirement_raw || ''}
+            onChange={e => setForm({ ...form, requirement_raw: e.target.value })}
+            placeholder="如：≥20 学分"
+          />
+        </div>
+        <div className="form-group">
+          <label>要求类型</label>
+          <select
+            value={form.requirement_type || ''}
+            onChange={e => setForm({ ...form, requirement_type: e.target.value })}
+          >
+            <option value="">未设置</option>
+            <option value="credits">学分</option>
+            <option value="courses">门数</option>
+            <option value="hours">学时</option>
+          </select>
+        </div>
+      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label>最小要求</label>
+          <input
+            type="number"
+            step="0.5"
+            value={form.requirement_min ?? ''}
+            onChange={e => setForm({ ...form, requirement_min: e.target.value })}
+          />
+        </div>
+        <div className="form-group">
+          <label>最大要求</label>
+          <input
+            type="number"
+            step="0.5"
+            value={form.requirement_max ?? ''}
+            onChange={e => setForm({ ...form, requirement_max: e.target.value })}
+          />
+        </div>
+      </div>
+      {options.courseCategory && (
+        <div className="form-group">
+          <label>课程类别</label>
+          <input
+            value={form.course_category || ''}
+            onChange={e => setForm({ ...form, course_category: e.target.value })}
+          />
+        </div>
+      )}
+      <div className="form-row">
+        <div className="form-group">
+          <label>原始文本</label>
+          <input
+            value={form.raw || ''}
+            onChange={e => setForm({ ...form, raw: e.target.value })}
+          />
+        </div>
+        <div className="form-group">
+          <label>Excel 行号</label>
+          <input
+            type="number"
+            value={form.source_excel_row ?? ''}
+            onChange={e => setForm({ ...form, source_excel_row: e.target.value })}
+          />
+        </div>
+      </div>
+      <div className="form-group">
+        <label>备注 JSON</label>
+        <JsonEditor value={form.remark} onChange={v => setForm({ ...form, remark: v })} />
+      </div>
+    </>
+  );
+
   // ==================== 类别操作 ====================
 
   const handleAddCategory = async () => {
@@ -1386,8 +1748,12 @@ function AdminProgramEdit() {
     
     setSaving(true);
     try {
-      await axios.post(`/api/admin/programs/${id}/categories`, categoryForm);
-      setCategoryForm({ name: '', order_index: 0 });
+      await axios.post(`/api/admin/programs/${id}/categories`, {
+        ...categoryForm,
+        ...commonRequirementPayload(categoryForm),
+        order_index: parseInt(categoryForm.order_index) || 0
+      });
+      setCategoryForm(emptyCategoryForm());
       fetchData();
     } catch (err) {
       showModal('错误', '添加类别失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
@@ -1401,7 +1767,11 @@ function AdminProgramEdit() {
     
     setSaving(true);
     try {
-      await axios.put(`/api/admin/categories/${selectedCategory.id}`, categoryForm);
+      await axios.put(`/api/admin/categories/${selectedCategory.id}`, {
+        ...categoryForm,
+        ...commonRequirementPayload(categoryForm),
+        order_index: parseInt(categoryForm.order_index) || 0
+      });
       fetchData();
     } catch (err) {
       showModal('错误', '更新类别失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
@@ -1435,10 +1805,14 @@ function AdminProgramEdit() {
     try {
       await axios.post(`/api/admin/categories/${categoryId}/nodes`, {
         ...nodeForm,
-        parent_id: parentId
+        ...commonRequirementPayload(nodeForm),
+        order_index: parseInt(nodeForm.order_index) || 0,
+        parent_id: parentId,
+        node_kind: nodeForm.node_kind || 'module',
+        rules_raw: nodeForm.rules_raw || []
       });
       // 新建节点后重置表单为空，而不是保留上一个
-      setNodeForm({ name: '', order_index: 0, qualification_rules: [] });
+      setNodeForm(emptyNodeForm());
       if (parentId) {
         setExpandedNodes(prev => new Set([...prev, parentId]));
       }
@@ -1456,7 +1830,13 @@ function AdminProgramEdit() {
     
     setSaving(true);
     try {
-      await axios.put(`/api/admin/nodes/${selectedNode.id}`, nodeForm);
+      await axios.put(`/api/admin/nodes/${selectedNode.id}`, {
+        ...nodeForm,
+        ...commonRequirementPayload(nodeForm),
+        order_index: parseInt(nodeForm.order_index) || 0,
+        node_kind: nodeForm.node_kind || 'module',
+        rules_raw: nodeForm.rules_raw || []
+      });
       fetchData();
     } catch (err) {
       showModal('错误', '更新节点失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
@@ -1484,12 +1864,8 @@ function AdminProgramEdit() {
 
   // 新建课程列表的初始状态
   const getInitialCourseListForm = () => ({
-    name: '',
-    is_dissertation: false,
-    filters: {},
-    max_courses: null,
-    is_repeatable: false,
-    qualification_rules: []
+    ...emptyCourseListForm(),
+    course_options: undefined
   });
 
   const handleAddCourseList = async (nodeId, listName) => {
@@ -1518,7 +1894,15 @@ function AdminProgramEdit() {
     
     setSaving(true);
     try {
-      await axios.put(`/api/admin/course-lists/${selectedCourseList.id}`, courseListForm);
+      const { course_options, ...payload } = courseListForm;
+      await axios.put(`/api/admin/course-lists/${selectedCourseList.id}`, {
+        ...payload,
+        ...commonRequirementPayload(courseListForm),
+        course_category: courseListForm.course_category || null,
+        order_index: parseInt(courseListForm.order_index) || 0,
+        max_courses: intOrNull(courseListForm.max_courses),
+        selection_rule: courseListForm.selection_rule || {}
+      });
       // 立即更新本地状态，确保显示最新值
       setSelectedCourseList({
         ...selectedCourseList,
@@ -1546,6 +1930,168 @@ function AdminProgramEdit() {
     });
   };
 
+  const refreshCourseListFromResponse = (courseList) => {
+    if (!courseList) return;
+    setSelectedCourseList(courseList);
+    setCourseListForm({
+      ...courseListForm,
+      ...courseList,
+      filters: courseList.filters ? JSON.parse(JSON.stringify(courseList.filters)) : {},
+      selection_rule: courseList.selection_rule ? JSON.parse(JSON.stringify(courseList.selection_rule)) : {},
+      qualification_rules: courseList.qualification_rules ? JSON.parse(JSON.stringify(courseList.qualification_rules)) : [],
+      course_options: courseList.course_options ? JSON.parse(JSON.stringify(courseList.course_options)) : []
+    });
+  };
+
+  const handleAddCourseOption = async () => {
+    if (!selectedCourseList) return;
+    setSaving(true);
+    try {
+      const res = await axios.post(`/api/admin/course-lists/${selectedCourseList.id}/course-options`, courseOptionForm);
+      refreshCourseListFromResponse(res.data.course_list);
+      setCourseOptionForm(emptyCourseOptionForm());
+      fetchData();
+    } catch (err) {
+      showModal('错误', '添加课程明细失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateCourseOption = async (option) => {
+    setSaving(true);
+    try {
+      const res = await axios.put(`/api/admin/course-options/${option.id}`, option);
+      refreshCourseListFromResponse(res.data.course_list);
+      fetchData();
+    } catch (err) {
+      showModal('错误', '更新课程明细失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteCourseOption = (optionId) => {
+    showModal('确认删除', '确定要删除这条课程明细吗？', async () => {
+      try {
+        const res = await axios.delete(`/api/admin/course-options/${optionId}`);
+        refreshCourseListFromResponse(res.data.course_list);
+        fetchData();
+        setModal(m => ({ ...m, isOpen: false }));
+      } catch (err) {
+        setModal(m => ({ ...m, isOpen: false }));
+        showModal('错误', '删除课程明细失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+      }
+    });
+  };
+
+  const updateCourseOptionDraft = (index, field, value) => {
+    setCourseListForm(prev => ({
+      ...prev,
+      course_options: prev.course_options.map((option, i) => i === index ? { ...option, [field]: value } : option)
+    }));
+  };
+
+  const courseOptionFromCourse = (course, existing = {}) => ({
+    ...existing,
+    course_id: course.course_id || existing.course_id || '',
+    course_name: course.course_name || existing.course_name || '',
+    credits: course.credits ?? existing.credits ?? '',
+    semester: course.semester || existing.semester || '',
+  });
+
+  const selectCourseOptionDraft = (index, course) => {
+    setCourseListForm(prev => ({
+      ...prev,
+      course_options: prev.course_options.map((option, i) => (
+        i === index ? courseOptionFromCourse(course, option) : option
+      ))
+    }));
+  };
+
+  const updateProgramCollectionItem = (key, index, patch) => {
+    setProgram(prev => ({
+      ...prev,
+      [key]: prev[key].map((item, i) => i === index ? { ...item, ...patch } : item)
+    }));
+  };
+
+  const handleAddRequirementRule = async () => {
+    setSaving(true);
+    try {
+      await axios.post(`/api/admin/programs/${id}/requirement-rules`, requirementRuleForm);
+      setRequirementRuleForm(emptyRequirementRuleForm());
+      fetchData();
+    } catch (err) {
+      showModal('错误', '添加规则失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateRequirementRule = async (rule) => {
+    setSaving(true);
+    try {
+      await axios.put(`/api/admin/requirement-rules/${rule.id}`, rule);
+      fetchData();
+    } catch (err) {
+      showModal('错误', '保存规则失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteRequirementRule = (ruleId) => {
+    showModal('确认删除', '确定要删除这条规则吗？', async () => {
+      try {
+        await axios.delete(`/api/admin/requirement-rules/${ruleId}`);
+        fetchData();
+        setModal(m => ({ ...m, isOpen: false }));
+      } catch (err) {
+        setModal(m => ({ ...m, isOpen: false }));
+        showModal('错误', '删除规则失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+      }
+    });
+  };
+
+  const handleAddMutualExclusion = async () => {
+    setSaving(true);
+    try {
+      await axios.post(`/api/admin/programs/${id}/mutual-exclusions`, mutualExclusionForm);
+      setMutualExclusionForm(emptyMutualExclusionForm());
+      fetchData();
+    } catch (err) {
+      showModal('错误', '添加互斥关系失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateMutualExclusion = async (group) => {
+    setSaving(true);
+    try {
+      await axios.put(`/api/admin/mutual-exclusions/${group.id}`, group);
+      fetchData();
+    } catch (err) {
+      showModal('错误', '保存互斥关系失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteMutualExclusion = (groupId) => {
+    showModal('确认删除', '确定要删除这组互斥关系吗？', async () => {
+      try {
+        await axios.delete(`/api/admin/mutual-exclusions/${groupId}`);
+        fetchData();
+        setModal(m => ({ ...m, isOpen: false }));
+      } catch (err) {
+        setModal(m => ({ ...m, isOpen: false }));
+        showModal('错误', '删除互斥关系失败: ' + (err.response?.data?.message || err.message), () => setModal(m => ({ ...m, isOpen: false })), false);
+      }
+    });
+  };
+
   // ==================== 选择处理 ====================
 
   const selectCategory = (category) => {
@@ -1554,7 +2100,14 @@ function AdminProgramEdit() {
     setSelectedCourseList(null);
     setCategoryForm({
       name: category.name,
-      order_index: category.order_index || 0
+      order_index: category.order_index || 0,
+      raw: category.raw || '',
+      remark: category.remark ?? null,
+      requirement_raw: category.requirement_raw || '',
+      requirement_type: category.requirement_type || '',
+      requirement_min: category.requirement_min ?? '',
+      requirement_max: category.requirement_max ?? '',
+      source_excel_row: category.source_excel_row ?? ''
     });
   };
 
@@ -1564,7 +2117,17 @@ function AdminProgramEdit() {
     setSelectedCourseList(null);
     setNodeForm({
       name: node.name,
+      parent_id: node.parent_id ?? null,
       order_index: node.order_index || 0,
+      raw: node.raw || '',
+      node_kind: node.node_kind || 'module',
+      remark: node.remark ?? null,
+      requirement_raw: node.requirement_raw || '',
+      requirement_type: node.requirement_type || '',
+      requirement_min: node.requirement_min ?? '',
+      requirement_max: node.requirement_max ?? '',
+      source_excel_row: node.source_excel_row ?? '',
+      rules_raw: node.rules_raw ? JSON.parse(JSON.stringify(node.rules_raw)) : [],
       qualification_rules: node.qualification_rules || []
     });
     // 重置子节点名称
@@ -1578,12 +2141,24 @@ function AdminProgramEdit() {
     // 深拷贝filters和qualification_rules，避免引用共享
     setCourseListForm({
       name: list.name,
+      order_index: list.order_index || 0,
+      raw: list.raw || '',
+      remark: list.remark ?? null,
+      course_category: list.course_category || '',
+      requirement_raw: list.requirement_raw || '',
+      requirement_type: list.requirement_type || '',
+      requirement_min: list.requirement_min ?? '',
+      requirement_max: list.requirement_max ?? '',
+      source_excel_row: list.source_excel_row ?? '',
+      selection_rule: list.selection_rule ? JSON.parse(JSON.stringify(list.selection_rule)) : {},
       is_dissertation: list.is_dissertation || false,
       filters: list.filters ? JSON.parse(JSON.stringify(list.filters)) : {},
       max_courses: list.max_courses,
       is_repeatable: list.is_repeatable || false,
-      qualification_rules: list.qualification_rules ? JSON.parse(JSON.stringify(list.qualification_rules)) : []
+      qualification_rules: list.qualification_rules ? JSON.parse(JSON.stringify(list.qualification_rules)) : [],
+      course_options: list.course_options ? JSON.parse(JSON.stringify(list.course_options)) : []
     });
+    setCourseOptionForm(emptyCourseOptionForm());
   };
 
   // ==================== 树形渲染 ====================
@@ -1725,6 +2300,330 @@ function AdminProgramEdit() {
     );
   };
 
+  const renderProgramInfoPanel = () => (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '15px' }}>
+        <h3 style={{ margin: 0 }}>方案信息</h3>
+        <button className="btn btn-primary btn-sm" onClick={handleUpdateProgram} disabled={saving}>
+          {saving ? '保存中...' : '保存方案信息'}
+        </button>
+      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label>名称</label>
+          <input value={programForm.name} onChange={e => setProgramForm({ ...programForm, name: e.target.value })} />
+        </div>
+        <div className="form-group">
+          <label>院系</label>
+          <input value={programForm.dept} onChange={e => setProgramForm({ ...programForm, dept: e.target.value })} />
+        </div>
+      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label>年级</label>
+          <input type="number" value={programForm.year} onChange={e => setProgramForm({ ...programForm, year: e.target.value })} />
+        </div>
+        <div className="form-group">
+          <label>类型</label>
+          <select value={programForm.channel} onChange={e => setProgramForm({ ...programForm, channel: parseInt(e.target.value) })}>
+            <option value={0}>主修</option>
+            <option value={1}>辅修/双学位（双专业）</option>
+          </select>
+        </div>
+        <div className="form-group">
+          <label>总学分</label>
+          <input type="number" step="0.5" value={programForm.total_credits} onChange={e => setProgramForm({ ...programForm, total_credits: e.target.value })} />
+        </div>
+      </div>
+      <details>
+        <summary style={{ cursor: 'pointer', color: '#0067c0', fontWeight: 500 }}>导入元数据与原始 JSON</summary>
+        <div style={{ marginTop: '15px' }}>
+          <div className="form-group">
+            <label>元数据 metadata</label>
+            <JsonEditor value={programForm.program_metadata} onChange={v => setProgramForm({ ...programForm, program_metadata: v })} />
+          </div>
+          <div className="form-group">
+            <label>来源信息 source_info</label>
+            <JsonEditor value={programForm.source_info} onChange={v => setProgramForm({ ...programForm, source_info: v })} />
+          </div>
+          <div className="form-group">
+            <label>导入警告 import_warnings</label>
+            <ArrayEditor value={programForm.import_warnings} onChange={v => setProgramForm({ ...programForm, import_warnings: v })} />
+          </div>
+          <div className="form-group">
+            <label>原始解析 raw_payload</label>
+            <JsonEditor value={programForm.raw_payload} onChange={v => setProgramForm({ ...programForm, raw_payload: v })} />
+          </div>
+        </div>
+      </details>
+    </div>
+  );
+
+  const renderCourseOptionsEditor = () => {
+    if (!selectedCourseList) return null;
+    return (
+      <div style={{ marginTop: '20px' }}>
+        <h4>可计入课程明细</h4>
+        <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+          保存课程明细后会同步课程列表筛选条件中的 course_id。
+        </div>
+        <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+          <table style={{ minWidth: '760px' }}>
+            <thead>
+              <tr>
+                <th>课号</th>
+                <th>课程名</th>
+                <th>学分</th>
+                <th>总学时</th>
+                <th>实践学时</th>
+                <th>学期</th>
+                <th>排序</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(courseListForm.course_options || []).map((option, index) => (
+                <tr key={option.id}>
+                  <td>
+                    <CourseLookupInput
+                      value={option.course_id || ''}
+                      onChange={value => updateCourseOptionDraft(index, 'course_id', value)}
+                      onSelect={course => selectCourseOptionDraft(index, course)}
+                      allCourses={allCourses}
+                      placeholder="课号"
+                    />
+                  </td>
+                  <td>
+                    <CourseLookupInput
+                      value={option.course_name || ''}
+                      onChange={value => updateCourseOptionDraft(index, 'course_name', value)}
+                      onSelect={course => selectCourseOptionDraft(index, course)}
+                      allCourses={allCourses}
+                      placeholder="课程名"
+                    />
+                  </td>
+                  <td><input type="number" step="0.5" value={option.credits ?? ''} onChange={e => updateCourseOptionDraft(index, 'credits', e.target.value)} /></td>
+                  <td><input type="number" step="0.5" value={option.total_hours ?? ''} onChange={e => updateCourseOptionDraft(index, 'total_hours', e.target.value)} /></td>
+                  <td><input type="number" step="0.5" value={option.practice_total_hours ?? ''} onChange={e => updateCourseOptionDraft(index, 'practice_total_hours', e.target.value)} /></td>
+                  <td><input value={option.semester || ''} onChange={e => updateCourseOptionDraft(index, 'semester', e.target.value)} /></td>
+                  <td><input type="number" value={option.order_index || 0} onChange={e => updateCourseOptionDraft(index, 'order_index', parseInt(e.target.value) || 0)} /></td>
+                  <td>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button className="btn btn-primary btn-sm" onClick={() => handleUpdateCourseOption(option)} disabled={saving}>保存</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCourseOption(option.id)} disabled={saving}>删除</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td>
+                  <CourseLookupInput
+                    value={courseOptionForm.course_id}
+                    onChange={value => setCourseOptionForm({ ...courseOptionForm, course_id: value })}
+                    onSelect={course => setCourseOptionForm(courseOptionFromCourse(course, courseOptionForm))}
+                    allCourses={allCourses}
+                    placeholder="新课号"
+                  />
+                </td>
+                <td>
+                  <CourseLookupInput
+                    value={courseOptionForm.course_name}
+                    onChange={value => setCourseOptionForm({ ...courseOptionForm, course_name: value })}
+                    onSelect={course => setCourseOptionForm(courseOptionFromCourse(course, courseOptionForm))}
+                    allCourses={allCourses}
+                    placeholder="新课程名"
+                  />
+                </td>
+                <td><input type="number" step="0.5" value={courseOptionForm.credits} onChange={e => setCourseOptionForm({ ...courseOptionForm, credits: e.target.value })} /></td>
+                <td><input type="number" step="0.5" value={courseOptionForm.total_hours} onChange={e => setCourseOptionForm({ ...courseOptionForm, total_hours: e.target.value })} /></td>
+                <td><input type="number" step="0.5" value={courseOptionForm.practice_total_hours} onChange={e => setCourseOptionForm({ ...courseOptionForm, practice_total_hours: e.target.value })} /></td>
+                <td><input value={courseOptionForm.semester} onChange={e => setCourseOptionForm({ ...courseOptionForm, semester: e.target.value })} /></td>
+                <td><input type="number" value={courseOptionForm.order_index} onChange={e => setCourseOptionForm({ ...courseOptionForm, order_index: parseInt(e.target.value) || 0 })} /></td>
+                <td><button className="btn btn-secondary btn-sm" onClick={handleAddCourseOption} disabled={saving || !courseOptionForm.course_id.trim()}>添加</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRequirementRulesEditor = () => (
+    <div>
+      <h4 style={{ margin: '0 0 12px' }}>跨节点规则</h4>
+      {(program?.requirement_rules || []).map((rule, index) => (
+        <details key={rule.id} style={{ border: '1px solid #e5e7eb', borderRadius: '6px', padding: '10px', marginBottom: '10px' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 500 }}>
+            #{rule.id} {rule.owner_type}{rule.owner_id ? `:${rule.owner_id}` : ''} · {rule.raw || '未填写原文'}
+          </summary>
+          <div style={{ marginTop: '12px' }}>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Owner 类型</label>
+                <select value={rule.owner_type || 'program'} onChange={e => updateProgramCollectionItem('requirement_rules', index, { owner_type: e.target.value })}>
+                  <option value="program">program</option>
+                  <option value="category">category</option>
+                  <option value="node">node</option>
+                  <option value="course_list">course_list</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Owner ID</label>
+                <input type="number" value={rule.owner_id ?? ''} onChange={e => updateProgramCollectionItem('requirement_rules', index, { owner_id: e.target.value ? parseInt(e.target.value) : null })} />
+              </div>
+              <div className="form-group">
+                <label>排序</label>
+                <input type="number" value={rule.order_index || 0} onChange={e => updateProgramCollectionItem('requirement_rules', index, { order_index: parseInt(e.target.value) || 0 })} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>规则原文</label>
+              <textarea value={rule.raw || ''} onChange={e => updateProgramCollectionItem('requirement_rules', index, { raw: e.target.value })} />
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>指标</label>
+                <input value={rule.metric || ''} onChange={e => updateProgramCollectionItem('requirement_rules', index, { metric: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label>运算符</label>
+                <input value={rule.operator || ''} onChange={e => updateProgramCollectionItem('requirement_rules', index, { operator: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label>值</label>
+                <input type="number" step="0.5" value={rule.value ?? ''} onChange={e => updateProgramCollectionItem('requirement_rules', index, { value: e.target.value })} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>目标名称 JSON</label>
+              <ArrayEditor value={rule.target_names} onChange={v => updateProgramCollectionItem('requirement_rules', index, { target_names: v })} />
+            </div>
+            <div className="form-group">
+              <label>解析结果 JSON</label>
+              <JsonEditor value={rule.parsed} onChange={v => updateProgramCollectionItem('requirement_rules', index, { parsed: v })} />
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => handleUpdateRequirementRule(rule)} disabled={saving}>保存规则</button>
+              <button className="btn btn-danger btn-sm" onClick={() => handleDeleteRequirementRule(rule.id)} disabled={saving}>删除</button>
+            </div>
+          </div>
+        </details>
+      ))}
+      <details style={{ border: '1px dashed #cbd5e1', borderRadius: '6px', padding: '10px' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 500 }}>添加规则</summary>
+        <div style={{ marginTop: '12px' }}>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Owner 类型</label>
+              <select value={requirementRuleForm.owner_type} onChange={e => setRequirementRuleForm({ ...requirementRuleForm, owner_type: e.target.value })}>
+                <option value="program">program</option>
+                <option value="category">category</option>
+                <option value="node">node</option>
+                <option value="course_list">course_list</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Owner ID</label>
+              <input type="number" value={requirementRuleForm.owner_id} onChange={e => setRequirementRuleForm({ ...requirementRuleForm, owner_id: e.target.value })} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label>规则原文</label>
+            <textarea value={requirementRuleForm.raw} onChange={e => setRequirementRuleForm({ ...requirementRuleForm, raw: e.target.value })} />
+          </div>
+          <div className="form-group">
+            <label>解析结果 JSON</label>
+            <JsonEditor value={requirementRuleForm.parsed} onChange={v => setRequirementRuleForm({ ...requirementRuleForm, parsed: v })} />
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={handleAddRequirementRule} disabled={saving}>添加规则</button>
+        </div>
+      </details>
+    </div>
+  );
+
+  const renderMutualExclusionsEditor = () => (
+    <div>
+      <h4 style={{ margin: '0 0 12px' }}>互斥关系</h4>
+      {(program?.mutual_exclusion_groups || []).map((group, index) => (
+        <details key={group.id} style={{ border: '1px solid #e5e7eb', borderRadius: '6px', padding: '10px', marginBottom: '10px' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 500 }}>
+            #{group.id} {group.owner_type}{group.owner_id ? `:${group.owner_id}` : ''} · {(group.items || []).map(item => item.course_id).join(' / ') || group.raw || '未填写'}
+          </summary>
+          <div style={{ marginTop: '12px' }}>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Owner 类型</label>
+                <select value={group.owner_type || 'program'} onChange={e => updateProgramCollectionItem('mutual_exclusion_groups', index, { owner_type: e.target.value })}>
+                  <option value="program">program</option>
+                  <option value="category">category</option>
+                  <option value="node">node</option>
+                  <option value="course_list">course_list</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Owner ID</label>
+                <input type="number" value={group.owner_id ?? ''} onChange={e => updateProgramCollectionItem('mutual_exclusion_groups', index, { owner_id: e.target.value ? parseInt(e.target.value) : null })} />
+              </div>
+              <div className="form-group">
+                <label>排序</label>
+                <input type="number" value={group.order_index || 0} onChange={e => updateProgramCollectionItem('mutual_exclusion_groups', index, { order_index: parseInt(e.target.value) || 0 })} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>互斥原文</label>
+              <textarea value={group.raw || ''} onChange={e => updateProgramCollectionItem('mutual_exclusion_groups', index, { raw: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>互斥课程号 JSON</label>
+              <ArrayEditor value={(group.items || []).map(item => ({ course_id: item.course_id, order_index: item.order_index || 0 }))} onChange={v => updateProgramCollectionItem('mutual_exclusion_groups', index, { items: v })} />
+            </div>
+            <div className="form-group">
+              <label>策略 JSON</label>
+              <JsonEditor value={group.strategy} onChange={v => updateProgramCollectionItem('mutual_exclusion_groups', index, { strategy: v })} />
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => handleUpdateMutualExclusion(group)} disabled={saving}>保存互斥关系</button>
+              <button className="btn btn-danger btn-sm" onClick={() => handleDeleteMutualExclusion(group.id)} disabled={saving}>删除</button>
+            </div>
+          </div>
+        </details>
+      ))}
+      <details style={{ border: '1px dashed #cbd5e1', borderRadius: '6px', padding: '10px' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 500 }}>添加互斥关系</summary>
+        <div style={{ marginTop: '12px' }}>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Owner 类型</label>
+              <select value={mutualExclusionForm.owner_type} onChange={e => setMutualExclusionForm({ ...mutualExclusionForm, owner_type: e.target.value })}>
+                <option value="program">program</option>
+                <option value="category">category</option>
+                <option value="node">node</option>
+                <option value="course_list">course_list</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Owner ID</label>
+              <input type="number" value={mutualExclusionForm.owner_id} onChange={e => setMutualExclusionForm({ ...mutualExclusionForm, owner_id: e.target.value })} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label>互斥原文</label>
+            <textarea value={mutualExclusionForm.raw} onChange={e => setMutualExclusionForm({ ...mutualExclusionForm, raw: e.target.value })} />
+          </div>
+          <div className="form-group">
+            <label>互斥课程号 JSON</label>
+            <ArrayEditor value={mutualExclusionForm.items} onChange={v => setMutualExclusionForm({ ...mutualExclusionForm, items: v })} />
+          </div>
+          <div className="form-group">
+            <label>策略 JSON</label>
+            <JsonEditor value={mutualExclusionForm.strategy} onChange={v => setMutualExclusionForm({ ...mutualExclusionForm, strategy: v })} />
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={handleAddMutualExclusion} disabled={saving}>添加互斥关系</button>
+        </div>
+      </details>
+    </div>
+  );
+
   // ==================== 配置面板 ====================
 
   const renderConfigPanel = () => {
@@ -1846,6 +2745,14 @@ function AdminProgramEdit() {
               placeholder="不限"
             />
           </div>
+          {renderImportedFieldEditor(courseListForm, setCourseListForm, { courseCategory: true })}
+          <div className="form-group">
+            <label>选择规则 JSON</label>
+            <JsonEditor
+              value={courseListForm.selection_rule}
+              onChange={v => setCourseListForm({ ...courseListForm, selection_rule: v })}
+            />
+          </div>
 
           {editMode === 'ui' ? (
             <>
@@ -1896,6 +2803,7 @@ function AdminProgramEdit() {
               删除
             </button>
           </div>
+          {renderCourseOptionsEditor()}
           </>
           )}
         </div>
@@ -1978,6 +2886,18 @@ function AdminProgramEdit() {
               value={nodeForm.order_index} 
               onChange={e => setNodeForm({...nodeForm, order_index: parseInt(e.target.value) || 0})} 
             />
+          </div>
+          <div className="form-group">
+            <label>节点类型</label>
+            <input
+              value={nodeForm.node_kind || ''}
+              onChange={e => setNodeForm({ ...nodeForm, node_kind: e.target.value })}
+            />
+          </div>
+          {renderImportedFieldEditor(nodeForm, setNodeForm)}
+          <div className="form-group">
+            <label>原始规则 JSON</label>
+            <ArrayEditor value={nodeForm.rules_raw} onChange={v => setNodeForm({ ...nodeForm, rules_raw: v })} />
           </div>
 
           {editMode === 'ui' ? (
@@ -2094,6 +3014,7 @@ function AdminProgramEdit() {
               onChange={e => setCategoryForm({...categoryForm, order_index: parseInt(e.target.value) || 0})} 
             />
           </div>
+          {renderImportedFieldEditor(categoryForm, setCategoryForm)}
           
           <hr style={{ margin: '20px 0' }} />
           
@@ -2179,6 +3100,8 @@ function AdminProgramEdit() {
         </div>
       </div>
 
+      {renderProgramInfoPanel()}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
         {/* 左侧：树形结构 */}
         <div className="card">
@@ -2215,6 +3138,13 @@ function AdminProgramEdit() {
         {/* 右侧：配置面板 */}
         <div className="card">
           {renderConfigPanel()}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          {renderRequirementRulesEditor()}
+          {renderMutualExclusionsEditor()}
         </div>
       </div>
     </div>

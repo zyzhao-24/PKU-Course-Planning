@@ -32,6 +32,8 @@ def _load_jwt_secret():
 
 JWT_SECRET = _load_jwt_secret()
 JWT_EXPIRE_HOURS = 24
+LOCAL_USERNAME = 'local'
+LOCAL_DISPLAY_NAME = '本地用户'
 
 # 临时登录会话存储（登录过程中使用）
 # {session_id: {
@@ -159,7 +161,9 @@ def create_login_session(method='password'):
             'client': client,
             'rsa_key': rsa_key,
             'created_at': datetime.now(),
-            'username': None
+            'username': None,
+            'mobile_mask': '',
+            'last_sms_sent_at': None
         }
         
         # 返回会话ID和公钥信息
@@ -264,20 +268,29 @@ def check_mobile_auth(session_id, username):
         session['username'] = username
         
         mobile_mask = result.get('mobileMask', '')
+        session['mobile_mask'] = mobile_mask
         
-        # 构建返回信息（确保返回布尔值而不是数字）
-        auth_info = {
-            'requires_captcha': bool(session['client'].auth_reqs.value & LoginReqs.CAPTCHA.value),
-            'requires_sms': bool(session['client'].auth_reqs.value & LoginReqs.SMS.value),
-            'requires_otp': bool(session['client'].auth_reqs.value & LoginReqs.OTP.value),
-            'requires_bind_otp': bool(session['client'].auth_reqs.value & LoginReqs.BIND_OTP.value),
-            'mobile_mask': mobile_mask
-        }
-        return True, auth_info
+        return get_login_auth_requirements(session_id)
     except PKUIAAAError as e:
         return False, str(e)
     except Exception as e:
         return False, f"检查认证需求失败: {str(e)}"
+
+
+def get_login_auth_requirements(session_id):
+    """Return the current additional-auth requirements for a login session."""
+    session = get_login_session(session_id)
+    if not session:
+        return False, "会话已过期或不存在"
+
+    requirements = session['client'].auth_reqs.value
+    return True, {
+        'requires_captcha': bool(requirements & LoginReqs.CAPTCHA.value),
+        'requires_sms': bool(requirements & LoginReqs.SMS.value),
+        'requires_otp': bool(requirements & LoginReqs.OTP.value),
+        'requires_bind_otp': bool(requirements & LoginReqs.BIND_OTP.value),
+        'mobile_mask': session.get('mobile_mask', ''),
+    }
 
 
 def get_captcha_image(session_id):
@@ -309,9 +322,23 @@ def send_sms_code(session_id):
     
     if not session['username']:
         return False, "请先输入用户名"
+
+    last_sent_at = session.get('last_sms_sent_at')
+    if last_sent_at:
+        remaining = 60 - (time.time() - last_sent_at)
+        if remaining > 0:
+            return False, f"请{int(remaining) + 1}秒后重新发送"
     
     try:
         result = session['client'].send_sms_code(session['username'])
+        if not isinstance(result, dict) or not result.get('success', False):
+            if isinstance(result, dict):
+                message = result.get('message') or result.get('msg') or '短信验证码发送失败'
+            else:
+                message = '短信验证码发送失败'
+            return False, message
+        session['mobile_mask'] = result.get('mobileMask', session.get('mobile_mask', ''))
+        session['last_sms_sent_at'] = time.time()
         return True, result
     except PKUIAAAError as e:
         return False, str(e)
@@ -346,6 +373,16 @@ def password_login(session_id, password, captcha='', sms_code='', otp_code=''):
     
     if not session['username']:
         return False, "请先输入用户名", None
+
+    requirements = session['client'].auth_reqs.value
+    if requirements & LoginReqs.BIND_OTP.value:
+        return False, "请先绑定手机令牌", None
+    if requirements & LoginReqs.CAPTCHA.value and not captcha:
+        return False, "请输入验证码", None
+    if requirements & LoginReqs.SMS.value and not sms_code:
+        return False, "请输入短信验证码", None
+    if requirements & LoginReqs.OTP.value and not otp_code:
+        return False, "请输入手机令牌", None
     
     try:
         result = session['client'].password_login(
@@ -393,6 +430,10 @@ def password_login(session_id, password, captcha='', sms_code='', otp_code=''):
             # 登录失败，返回错误信息
             error_code = result.get('errors', {}).get('code', 'UNKNOWN')
             error_msg = result.get('errors', {}).get('msg', '登录失败')
+            if result.get('showCode') or error_code == 'E03':
+                session['client'].auth_reqs = LoginReqs(
+                    session['client'].auth_reqs.value | LoginReqs.CAPTCHA.value
+                )
             return False, f"[{error_code}] {error_msg}", None
             
     except PKUIAAAError as e:
@@ -494,6 +535,23 @@ def finalize_login(session_id, user_info):
         del _login_sessions[session_id]
     
     return user, session['client']
+
+
+def bind_portal_session(session_id, user):
+    """Bind a completed PKU Portal login session to the local app user."""
+    session = get_login_session(session_id)
+    if not session or not user:
+        return False
+
+    _portal_sessions[user.id] = {
+        'client': session['client'],
+        'timestamp': datetime.now()
+    }
+
+    if session_id in _login_sessions:
+        del _login_sessions[session_id]
+
+    return True
 
 
 def get_portal_session(user_id):
@@ -637,6 +695,7 @@ def login_required(f):
 
 
 def student_required(f):
+    return login_required(f)
     """学生权限装饰器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -650,6 +709,18 @@ def student_required(f):
     return decorated_function
 
 
+MANAGER_ROLES = {'admin', 'local'}
+
+
+def has_admin_permission(user):
+    """Return whether a user can access management APIs.
+
+    The app currently treats the single local user as a manager. If role
+    separation is needed again later, narrow MANAGER_ROLES to {'admin'}.
+    """
+    return bool(user and user.role in MANAGER_ROLES)
+
+
 def admin_required(f):
     """管理员权限装饰器"""
     @wraps(f)
@@ -657,7 +728,7 @@ def admin_required(f):
         user = get_current_user()
         if not user:
             return jsonify({'success': False, 'message': '请先登录'}), 401
-        if user.role != 'admin':
+        if not has_admin_permission(user):
             return jsonify({'success': False, 'message': '需要管理员权限'}), 403
         kwargs['current_user'] = user
         return f(*args, **kwargs)
@@ -665,6 +736,28 @@ def admin_required(f):
 
 
 # ========== 用户管理函数 ==========
+
+def get_or_create_local_user():
+    """Return the single local application user, creating it for a fresh DB."""
+    user = User.query.filter_by(username=LOCAL_USERNAME).first()
+    if user:
+        user.role = 'local'
+        if not user.name:
+            user.name = LOCAL_DISPLAY_NAME
+        user.last_login = datetime.utcnow()
+        db.session.commit()
+        return user
+
+    user = User(
+        username=LOCAL_USERNAME,
+        role='local',
+        name=LOCAL_DISPLAY_NAME,
+        last_login=datetime.utcnow()
+    )
+    db.session.add(user)
+    db.session.commit()
+    return user
+
 
 def create_or_update_student(username, name=None):
     """创建或更新学生账号"""

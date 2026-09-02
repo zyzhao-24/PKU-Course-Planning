@@ -1,11 +1,221 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import axios from '../utils/axios';
 import Modal from '../components/Modal';
 import { useSemester } from '../contexts/SemesterContext';
-import { getFilterDescription, getCourseListRulesDescription, getNodeRulesDescription, DEPARTMENT_CODE_MAP, formatClassTimes, checkTimeConflict } from '../utils';
+import { getFilterDescription, getCourseListRulesDescription, getNodeRulesDescription, DEPARTMENT_CODE_MAP, formatClassTimes } from '../utils';
+import {
+  buildFixedBusyIndex,
+  findCandidateCourseConflictDetails,
+  findCandidateCourseConflictOwners,
+} from '../utils/scheduleConflicts';
+import ConflictConfirmation from '../components/ConflictConfirmation';
+import { sortSemestersDescending } from '../utils/semesters';
+import { useActivities } from '../contexts/ActivityContext';
+
+function CourseLookupInput({ value, onChange, onSelect, semester, placeholder }) {
+  const [focused, setFocused] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const containerRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const query = (value || '').trim().toLowerCase();
+
+  const updateDropdownPosition = () => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const viewportPadding = 12;
+    const width = Math.min(Math.max(rect.width, 380), window.innerWidth - viewportPadding * 2);
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+    const spaceAbove = rect.top - viewportPadding;
+    const opensUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+    setDropdownStyle({
+      position: 'fixed',
+      zIndex: 3000,
+      left,
+      width,
+      top: opensUp ? 'auto' : rect.bottom + 6,
+      bottom: opensUp ? window.innerHeight - rect.top + 6 : 'auto',
+      maxHeight: Math.max(180, Math.min(320, Math.max(spaceBelow, spaceAbove))),
+    });
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target)
+      ) {
+        setFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!focused || !query) {
+      setDropdownStyle(null);
+      return undefined;
+    }
+    updateDropdownPosition();
+    window.addEventListener('resize', updateDropdownPosition);
+    window.addEventListener('scroll', updateDropdownPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition);
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+    };
+  }, [focused, suggestions.length, loadingSuggestions, value, semester, query]);
+
+  useEffect(() => {
+    if (!query) {
+      setSuggestions([]);
+      setLoadingSuggestions(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadingSuggestions(true);
+    const timer = setTimeout(async () => {
+      try {
+        const params = { per_page: 80, q: query, distinct_mode: 'true' };
+        if (semester) params.semester = semester;
+        const courseRes = await axios.get('/api/courses', { params });
+        if (cancelled) return;
+        const courses = courseRes.data.courses || [];
+        const groupedCourses = new Map();
+        courses.forEach(course => {
+          const key = semester
+            ? `${course.course_id}|${course.course_name}`
+            : `${course.course_id}|${course.course_name}`;
+          if (!groupedCourses.has(key)) {
+            groupedCourses.set(key, course);
+          }
+        });
+        const courseSuggestions = Array.from(groupedCourses.values())
+          .sort((a, b) => {
+            const aName = (a.course_name || '').toLowerCase();
+            const bName = (b.course_name || '').toLowerCase();
+            const aId = (a.course_id || '').toLowerCase();
+            const bId = (b.course_id || '').toLowerCase();
+            const aRank = (aName === query || aId === query) ? 0 : (aName.includes(query) ? 1 : 2);
+            const bRank = (bName === query || bId === query) ? 0 : (bName.includes(query) ? 1 : 2);
+            if (aRank !== bRank) return aRank - bRank;
+            return `${a.course_name}${a.course_id}`.localeCompare(`${b.course_name}${b.course_id}`, 'zh-Hans-CN');
+          });
+        setSuggestions(courseSuggestions.slice(0, 80));
+      } catch (err) {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setLoadingSuggestions(false);
+      }
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, semester]);
+
+  const dropdown = focused && query && dropdownStyle ? (
+    <div
+      ref={dropdownRef}
+      style={{
+        ...dropdownStyle,
+        overflowY: 'auto',
+        backgroundColor: 'white',
+        border: '1px solid #b6c2d1',
+        borderRadius: '8px',
+        boxShadow: '0 18px 45px rgba(15, 23, 42, 0.22)',
+        padding: '6px',
+      }}
+    >
+      {loadingSuggestions && (
+        <div style={{ padding: '10px', color: '#64748b', fontSize: '13px' }}>检索中...</div>
+      )}
+      {!loadingSuggestions && suggestions.length === 0 && (
+        <div style={{ padding: '10px', color: '#64748b', fontSize: '13px' }}>没有匹配课程</div>
+      )}
+      {!loadingSuggestions && suggestions.map(course => (
+        <button
+          type="button"
+          key={course.uuid || course.course_id}
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => {
+            onSelect(course);
+            setFocused(false);
+          }}
+          style={{
+            width: '100%',
+            border: 'none',
+            backgroundColor: 'white',
+            textAlign: 'left',
+            padding: '9px 10px',
+            cursor: 'pointer',
+            borderRadius: '6px',
+            fontFamily: 'inherit',
+            marginBottom: '2px'
+          }}
+          onMouseEnter={event => { event.currentTarget.style.backgroundColor = '#eef6ff'; }}
+          onMouseLeave={event => { event.currentTarget.style.backgroundColor = 'white'; }}
+        >
+          <div style={{ fontWeight: 600, fontSize: '13px', color: '#1f2937' }}>
+            {course.course_id} - {course.course_name}
+          </div>
+          <div style={{ color: '#64748b', fontSize: '12px', marginTop: '3px', lineHeight: 1.4 }}>
+            {course.semester || '未知学期'} · {course.class_number || '无班号'} · {DEPARTMENT_CODE_MAP[course.department_code] || course.department_code || '未知院系'} · {course.course_type || '未知类型'} · {course.credits ?? '-'} 学分
+          </div>
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <input
+        value={value || ''}
+        onFocus={() => setFocused(true)}
+        onChange={event => {
+          onChange(event.target.value);
+          setFocused(true);
+        }}
+        placeholder={placeholder}
+        style={{
+          width: '100%',
+          minHeight: '36px',
+          padding: '8px 10px',
+          border: '1px solid #cbd5e1',
+          borderRadius: '6px',
+          fontSize: '14px',
+          boxSizing: 'border-box'
+        }}
+      />
+      {dropdown && createPortal(dropdown, document.body)}
+    </div>
+  );
+}
+
+const getDescriptionExpansionKey = (type, id) => `${type}:${id}`;
+
+const collectExpandableNodeIds = (items, ids = new Set()) => {
+  items?.forEach(item => {
+    if (item.type === 'course_list') return;
+    ids.add(item.id);
+    collectExpandableNodeIds(item.children, ids);
+  });
+  return ids;
+};
 
 function StudentProgress() {
-  const { selectedSemester } = useSemester();
+  const { selectedSemester, semesterConfigs } = useSemester();
+  const { activities } = useActivities();
   const [progressData, setProgressData] = useState({ major: null, minor: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -14,7 +224,28 @@ function StudentProgress() {
   const [expandedDescriptions, setExpandedDescriptions] = useState(new Set()); // 展开规则描述的节点/列表
   const [allCourses, setAllCourses] = useState([]); // 所有课程列表
   const [allNodes, setAllNodes] = useState([]); // 所有节点列表
-
+  const [semesters, setSemesters] = useState([]);
+  const [manualTranscriptModal, setManualTranscriptModal] = useState({
+    isOpen: false,
+    saving: false,
+    message: ''
+  });
+  const [manualTranscriptForm, setManualTranscriptForm] = useState({
+    semester: selectedSemester || '',
+    uuid: '',
+    course_id: '',
+    class_number: '',
+    course_name: '',
+    score: '',
+    score_type: 'Percentage',
+    credits: '',
+    channel: 0,
+    course_type: '',
+    department_code: '',
+    teachersText: '',
+    classTimesText: '',
+    remarks: ''
+  });
   const [modal, setModal] = useState({
     isOpen: false,
     title: '',
@@ -55,8 +286,9 @@ function StudentProgress() {
 
   useEffect(() => {
     fetchProgress();
-    fetchAllCourses();
     fetchSelectedCourses();
+    fetchAllCourses();
+    fetchSemesters();
   }, []);
 
   // 当学期变化时重新获取已选课程
@@ -65,6 +297,24 @@ function StudentProgress() {
       fetchSelectedCourses();
     }
   }, [selectedSemester]);
+
+  const fetchAllCourses = async () => {
+    try {
+      const res = await axios.get('/api/courses', { params: { per_page: 5000, distinct_mode: 'true' } });
+      setAllCourses(res.data.courses || []);
+    } catch (err) {
+      console.error('获取课程列表失败', err);
+    }
+  };
+
+  const fetchSemesters = async () => {
+    try {
+      const res = await axios.get('/api/semesters');
+      setSemesters(sortSemestersDescending(res.data.semesters || []));
+    } catch (err) {
+      console.error('获取学期列表失败', err);
+    }
+  };
 
   const fetchSelectedCourses = async () => {
     try {
@@ -97,7 +347,7 @@ function StudentProgress() {
           uuid: d.course_uuid,
           course_name: d.course_name,
           class_times: d.class_times,
-          week_range: d.week_range,
+          exam_info: d.exam_info,
           course_id: d.course_id,
           department_code: d.department_code
       }));
@@ -152,17 +402,11 @@ function StudentProgress() {
         
         // 默认展开所有节点
         const allIds = new Set();
-        const collectIds = (nodes) => {
-          nodes?.forEach(node => {
-            allIds.add(node.id);
-            if (node.children) collectIds(node.children);
-          });
-        };
         if (progress?.major?.categories) {
-          progress.major.categories.forEach(cat => collectIds(cat.nodes));
+          progress.major.categories.forEach(cat => collectExpandableNodeIds(cat.nodes, allIds));
         }
         if (progress?.minor?.categories) {
-          progress.minor.categories.forEach(cat => collectIds(cat.nodes));
+          progress.minor.categories.forEach(cat => collectExpandableNodeIds(cat.nodes, allIds));
         }
         setExpandedNodes(allIds);
       } else {
@@ -172,16 +416,6 @@ function StudentProgress() {
       setError(err.response?.data?.message || '获取培养方案进度失败');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchAllCourses = async () => {
-    try {
-      // 获取所有课程（不分页）
-      const res = await axios.get('/api/courses', { params: { per_page: 0 } });
-      setAllCourses(res.data.courses || []);
-    } catch (err) {
-      console.error('获取课程列表失败', err);
     }
   };
 
@@ -203,6 +437,166 @@ function StudentProgress() {
     }
   };
 
+  const showModal = (title, content, onConfirm, showCancel = true) => {
+    setModal({
+      isOpen: true,
+      title,
+      content,
+      onConfirm,
+      showCancel
+    });
+  };
+
+  const openManualTranscriptModal = () => {
+    setManualTranscriptForm(prev => ({
+      ...prev,
+      semester: selectedSemester || prev.semester || '',
+      channel: activeTab === 'minor' ? 1 : 0
+    }));
+    setManualTranscriptModal({
+      isOpen: true,
+      saving: false,
+      message: ''
+    });
+  };
+
+  const closeManualTranscriptModal = () => {
+    setManualTranscriptModal({
+      isOpen: false,
+      saving: false,
+      message: ''
+    });
+  };
+
+  const updateManualTranscriptField = (field, value) => {
+    setManualTranscriptForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const selectManualCourse = (course) => {
+    setManualTranscriptForm(prev => ({
+      ...prev,
+      uuid: course.uuid || '',
+      course_id: course.course_id || '',
+      class_number: course.class_number || '',
+      course_name: course.course_name || '',
+      credits: course.credits ?? '',
+      semester: course.semester || prev.semester || '',
+      course_type: course.course_type || '',
+      department_code: course.department_code || '',
+      teachersText: Array.isArray(course.teachers) ? course.teachers.join(', ') : '',
+      classTimesText: course.class_times?.length ? JSON.stringify(course.class_times, null, 2) : '',
+      remarks: course.remarks || ''
+    }));
+  };
+
+  const parseListText = (value) => (
+    (value || '')
+      .split(/[,，]/)
+      .map(item => item.trim())
+      .filter(Boolean)
+  );
+
+  const parseClassTimesText = (value) => {
+    const text = (value || '').trim();
+    if (!text) return [];
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) {
+      throw new Error('上课时间必须是 JSON 数组');
+    }
+    return parsed;
+  };
+
+  const checkManualCourseExistsInSemester = async () => {
+    const semester = manualTranscriptForm.semester;
+    const courseId = manualTranscriptForm.course_id.trim();
+    if (!semester || !courseId) return true;
+    const res = await axios.get('/api/courses', {
+      params: {
+        per_page: 0,
+        semester,
+        course_id: courseId
+      }
+    });
+    const courses = res.data.courses || [];
+    return courses.some(course => (
+      course.course_id === courseId &&
+      (!manualTranscriptForm.class_number || course.class_number === manualTranscriptForm.class_number)
+    ));
+  };
+
+  const saveManualTranscript = async (createCourseIfMissing = false) => {
+    setManualTranscriptModal(prev => ({ ...prev, saving: true, message: '' }));
+
+    try {
+      const classTimes = parseClassTimesText(manualTranscriptForm.classTimesText);
+      const payload = {
+        ...manualTranscriptForm,
+        channel: Number(manualTranscriptForm.channel),
+        credits: manualTranscriptForm.credits === '' ? 0 : Number(manualTranscriptForm.credits),
+        teachers: parseListText(manualTranscriptForm.teachersText),
+        class_times: classTimes,
+        create_course_if_missing: createCourseIfMissing
+      };
+      delete payload.teachersText;
+      delete payload.classTimesText;
+      await axios.post('/api/student/transcript/manual', payload);
+      await axios.post('/api/student/progress/recalculate');
+      await fetchSelectedCourses();
+      await fetchAllCourses();
+      await fetchProgress();
+      closeManualTranscriptModal();
+      const successToast = document.createElement('div');
+      successToast.textContent = '已修课程录入成功';
+      successToast.style.cssText = 'position:fixed;top:20px;right:20px;background:#28a745;color:white;padding:10px 20px;border-radius:4px;z-index:9999;';
+      document.body.appendChild(successToast);
+      setTimeout(() => successToast.remove(), 2000);
+    } catch (err) {
+      setManualTranscriptModal(prev => ({
+        ...prev,
+        saving: false,
+        message: err.response?.data?.message || err.message || '录入失败'
+      }));
+    }
+  };
+
+  const handleManualTranscriptSubmit = async (event) => {
+    event.preventDefault();
+    setManualTranscriptModal(prev => ({ ...prev, message: '' }));
+
+    try {
+      const existsInSemester = await checkManualCourseExistsInSemester();
+      if (!existsInSemester) {
+        showModal(
+          '确认添加课程',
+          <div>
+            <div style={{ marginBottom: '8px' }}>
+              所选学期中没有找到这门课：{manualTranscriptForm.course_id} {manualTranscriptForm.course_name}
+            </div>
+            <div style={{ color: '#666', fontSize: '13px' }}>
+              确认后会先把这门课添加到 {manualTranscriptForm.semester} 的课程库，再作为已修课程计入培养方案。
+            </div>
+          </div>,
+          async () => {
+            setModal(prev => ({ ...prev, isOpen: false }));
+            await saveManualTranscript(true);
+          },
+          true
+        );
+        return;
+      }
+      await saveManualTranscript(false);
+    } catch (err) {
+      setManualTranscriptModal(prev => ({
+        ...prev,
+        saving: false,
+        message: err.response?.data?.message || err.message || '录入失败'
+      }));
+    }
+  };
+
   const toggleNode = (nodeId) => {
     setExpandedNodes(prev => {
       const newSet = new Set(prev);
@@ -217,14 +611,8 @@ function StudentProgress() {
 
   const expandAll = () => {
     const allIds = new Set();
-    const collectIds = (nodes) => {
-      nodes?.forEach(node => {
-        allIds.add(node.id);
-        if (node.children) collectIds(node.children);
-      });
-    };
     const currentProgram = activeTab === 'major' ? progressData.major : progressData.minor;
-    currentProgram?.categories?.forEach(cat => collectIds(cat.nodes));
+    currentProgram?.categories?.forEach(cat => collectExpandableNodeIds(cat.nodes, allIds));
     setExpandedNodes(allIds);
   };
 
@@ -260,13 +648,14 @@ function StudentProgress() {
     );
   };
 
-  const toggleDescription = (id) => {
+  const toggleDescription = (type, id) => {
+    const key = getDescriptionExpansionKey(type, id);
     setExpandedDescriptions(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
+      if (newSet.has(key)) {
+        newSet.delete(key);
       } else {
-        newSet.add(id);
+        newSet.add(key);
       }
       return newSet;
     });
@@ -299,6 +688,7 @@ function StudentProgress() {
       // 获取可以移动到的目标列表
       const res = await axios.post('/api/student/courses/can-move', {
         source_uuid: course.source_uuid,
+        from_list_id: fromListId,
         channel: activeTab === 'major' ? 0 : 1
       });
       
@@ -354,6 +744,7 @@ function StudentProgress() {
       
       const res = await axios.post('/api/student/courses/move', {
         source_uuid: moveModal.course.source_uuid,
+        from_list_id: moveModal.fromListId,
         to_list_id: toListId, // null表示取消分配
         channel: activeTab === 'major' ? 0 : 1
       });
@@ -449,21 +840,19 @@ function StudentProgress() {
   };
 
   // 当模态框中的课程列表变化时，计算冲突
+  const fixedBusyIndex = useMemo(() => buildFixedBusyIndex(selectedCoursesDetails, {
+      semester: selectedSemester,
+      firstWeekMonday: semesterConfigs[selectedSemester]?.first_week_monday || null,
+      activities,
+      adjustments: semesterConfigs[selectedSemester]?.schedule_adjustments || [],
+    }), [selectedCoursesDetails, selectedSemester, semesterConfigs, activities]);
+
   useEffect(() => {
-    const newConflicts = new Set();
-    if (selectedCoursesDetails.length > 0 && courseListModal.matchingCourses.length > 0) {
-      courseListModal.matchingCourses.forEach(course => {
-        if (selectedCourseUuids.has(course.uuid)) return;
-        for (const selected of selectedCoursesDetails) {
-          if (checkTimeConflict(course, selected)) {
-            newConflicts.add(course.uuid);
-            break;
-          }
-        }
-      });
-    }
-    setModalConflicts(newConflicts);
-  }, [courseListModal.matchingCourses, selectedCoursesDetails, selectedCourseUuids]);
+    const candidates = courseListModal.matchingCourses.filter(
+      course => !selectedCourseUuids.has(course.uuid),
+    );
+    setModalConflicts(findCandidateCourseConflictOwners(candidates, fixedBusyIndex));
+  }, [courseListModal.matchingCourses, selectedCourseUuids, fixedBusyIndex]);
 
   const handleSelectFromModal = async (courseUuid) => {
     try {
@@ -487,9 +876,32 @@ function StudentProgress() {
     }
   };
 
+  const requestSelectFromModal = (course) => {
+    if (!modalConflicts.has(course.uuid)) {
+      handleSelectFromModal(course.uuid);
+      return;
+    }
+
+    const details = findCandidateCourseConflictDetails(course, fixedBusyIndex);
+    showModal(
+      '确认时间冲突',
+      <ConflictConfirmation
+        course={course}
+        channel={courseListModal.channel}
+        details={details}
+      />,
+      async () => {
+        setModal(current => ({ ...current, isOpen: false }));
+        await handleSelectFromModal(course.uuid);
+      },
+      true,
+    );
+  };
+
   const renderCourseList = (item, depth = 0) => {
     const isQualified = item.qualified;
-    const showDesc = expandedDescriptions.has(item.id);
+    const descriptionKey = getDescriptionExpansionKey('course_list', item.id);
+    const showDesc = expandedDescriptions.has(descriptionKey);
     
     return (
       <div key={item.id} style={{
@@ -514,7 +926,7 @@ function StudentProgress() {
                 可重复
               </span>
             )}
-            {!item.is_dissertation && !hasFilters(item.filters) && (
+            {!item.is_physical_education_virtual && !item.is_labor_education_virtual && !item.is_dissertation && !hasFilters(item.filters) && (
               <span style={{ fontSize: '10px', padding: '2px 6px', backgroundColor: '#6c757d', color: 'white', borderRadius: '3px' }}>
                 任选
               </span>
@@ -538,7 +950,7 @@ function StudentProgress() {
               </button>
             )}
             <button
-              onClick={(e) => { e.stopPropagation(); toggleDescription(item.id); }}
+              onClick={(e) => { e.stopPropagation(); toggleDescription('course_list', item.id); }}
               style={{
                 fontSize: '11px',
                 padding: '2px 8px',
@@ -586,13 +998,16 @@ function StudentProgress() {
                 <span>{course.course_name}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ color: '#666' }}>{course.credits}学分</span>
+                  {item.is_labor_education_virtual && (
+                    <span style={{ color: '#6f42c1' }}>{course.labor_hours} 学时</span>
+                  )}
                   {course.has_grade ? (
                     <span style={{ color: '#28a745', fontSize: '12px' }}>{course.score}</span>
                   ) : (
                     <span style={{ color: '#ff9800', fontSize: '12px' }}>进行中</span>
                   )}
                   {/* 移动按钮 - 只在不可重复列表显示 */}
-                  {!item.is_repeatable && !item.is_dissertation && course.source_uuid && (
+                  {!item.is_repeatable && !item.is_labor_education_virtual && !item.is_dissertation && course.source_uuid && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -624,7 +1039,8 @@ function StudentProgress() {
   const renderNode = (node, depth = 0) => {
     const isExpanded = expandedNodes.has(node.id);
     const hasChildren = node.children && node.children.length > 0;
-    const showDesc = expandedDescriptions.has(node.id);
+    const descriptionKey = getDescriptionExpansionKey('node', node.id);
+    const showDesc = expandedDescriptions.has(descriptionKey);
     
     return (
       <div key={node.id}>
@@ -657,7 +1073,7 @@ function StudentProgress() {
             <div style={{ textAlign: 'right' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
-                  onClick={(e) => { e.stopPropagation(); toggleDescription(node.id); }}
+                  onClick={(e) => { e.stopPropagation(); toggleDescription('node', node.id); }}
                   style={{
                     fontSize: '11px',
                     padding: '2px 8px',
@@ -676,7 +1092,9 @@ function StudentProgress() {
                     fontWeight: 'bold',
                     color: node.qualified ? '#28a745' : '#ff9800'
                   }}>
-                    {node.credits.toFixed(1)} 学分 / {node.course_count} 门
+                    {node.is_labor_education
+                      ? `${node.labor_education_requirement?.hours || 0} / ${node.labor_education_requirement?.required_hours || 32} 学时`
+                      : `${node.credits.toFixed(1)} 学分 / ${node.course_count} 门`}
                   </div>
                   <div style={{ fontSize: '11px', color: '#666' }}>
                     {node.qualified ? '✓ 合格' : '未完成'}
@@ -890,6 +1308,250 @@ function StudentProgress() {
     );
   };
 
+  const renderManualTranscriptModal = () => {
+    const fieldStyle = {
+      display: 'grid',
+      gap: '6px'
+    };
+    const labelStyle = {
+      fontSize: '13px',
+      fontWeight: 600,
+      color: '#334155'
+    };
+    const inputStyle = {
+      width: '100%',
+      minHeight: '36px',
+      padding: '8px 10px',
+      border: '1px solid #cbd5e1',
+      borderRadius: '6px',
+      fontSize: '14px',
+      boxSizing: 'border-box'
+    };
+
+    return (
+      <Modal
+        isOpen={manualTranscriptModal.isOpen}
+        title="手动录入已修课程"
+        onCancel={closeManualTranscriptModal}
+        hideFooter
+        maxWidth="760px"
+      >
+        <form onSubmit={handleManualTranscriptSubmit}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '14px',
+            marginBottom: '14px'
+          }}>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>学期</span>
+              <select
+                value={manualTranscriptForm.semester}
+                onChange={event => updateManualTranscriptField('semester', event.target.value)}
+                required
+                style={inputStyle}
+              >
+                <option value="">请选择学期</option>
+                {semesters.map(semester => (
+                  <option key={semester} value={semester}>{semester}</option>
+                ))}
+              </select>
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>课程号</span>
+              <CourseLookupInput
+                value={manualTranscriptForm.course_id}
+                onChange={value => {
+                  updateManualTranscriptField('course_id', value);
+                  if (manualTranscriptForm.uuid) updateManualTranscriptField('uuid', '');
+                }}
+                onSelect={selectManualCourse}
+                semester={manualTranscriptForm.semester}
+                placeholder="输入课程号检索"
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>课程名称</span>
+              <CourseLookupInput
+                value={manualTranscriptForm.course_name}
+                onChange={value => {
+                  updateManualTranscriptField('course_name', value);
+                  if (manualTranscriptForm.uuid) updateManualTranscriptField('uuid', '');
+                }}
+                onSelect={selectManualCourse}
+                semester={manualTranscriptForm.semester}
+                placeholder="输入课程名称检索"
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>班号</span>
+              <input
+                value={manualTranscriptForm.class_number}
+                onChange={event => updateManualTranscriptField('class_number', event.target.value)}
+                placeholder="可选"
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>成绩</span>
+              <input
+                value={manualTranscriptForm.score}
+                onChange={event => updateManualTranscriptField('score', event.target.value)}
+                placeholder="例如 95、A、P"
+                required
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>成绩类型</span>
+              <select
+                value={manualTranscriptForm.score_type}
+                onChange={event => updateManualTranscriptField('score_type', event.target.value)}
+                style={inputStyle}
+              >
+                <option value="Percentage">百分制</option>
+                <option value="Grade">等级制</option>
+                <option value="P/NP">合格/不合格</option>
+              </select>
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>学分</span>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={manualTranscriptForm.credits}
+                onChange={event => updateManualTranscriptField('credits', event.target.value)}
+                required
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>计入通道</span>
+              <select
+                value={manualTranscriptForm.channel}
+                onChange={event => updateManualTranscriptField('channel', event.target.value)}
+                style={inputStyle}
+              >
+                <option value={0}>主修</option>
+                <option value={1}>辅修/双学位</option>
+              </select>
+            </label>
+          </div>
+
+          <label style={{ ...fieldStyle, marginBottom: '14px' }}>
+            <span style={labelStyle}>课程执行计划 UUID</span>
+            <input
+              value={manualTranscriptForm.uuid}
+              onChange={event => updateManualTranscriptField('uuid', event.target.value)}
+              placeholder="选择候选课程后自动填写；手动课程可留空"
+              style={inputStyle}
+            />
+          </label>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '14px',
+            marginBottom: '14px',
+            paddingTop: '14px',
+            borderTop: '1px solid #e2e8f0'
+          }}>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>课程类型</span>
+              <input
+                value={manualTranscriptForm.course_type}
+                onChange={event => updateManualTranscriptField('course_type', event.target.value)}
+                placeholder="可选"
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>开课院系代码</span>
+              <input
+                value={manualTranscriptForm.department_code}
+                onChange={event => updateManualTranscriptField('department_code', event.target.value)}
+                placeholder="可选"
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>教师</span>
+              <input
+                value={manualTranscriptForm.teachersText}
+                onChange={event => updateManualTranscriptField('teachersText', event.target.value)}
+                placeholder="多位教师用逗号分隔"
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={labelStyle}>备注</span>
+              <input
+                value={manualTranscriptForm.remarks}
+                onChange={event => updateManualTranscriptField('remarks', event.target.value)}
+                placeholder="可选"
+                style={inputStyle}
+              />
+            </label>
+          </div>
+
+          <label style={{ ...fieldStyle, marginBottom: '14px' }}>
+            <span style={labelStyle}>上课时间 JSON</span>
+            <textarea
+              value={manualTranscriptForm.classTimesText}
+              onChange={event => updateManualTranscriptField('classTimesText', event.target.value)}
+              placeholder='例如 [{"day":1,"start_period":1,"end_period":2,"week_range":"1-16"}]'
+              rows={3}
+              style={{ ...inputStyle, resize: 'vertical', fontFamily: 'monospace' }}
+            />
+          </label>
+
+          {manualTranscriptModal.message && (
+            <div style={{
+              color: '#b91c1c',
+              backgroundColor: '#fee2e2',
+              border: '1px solid #fecaca',
+              borderRadius: '6px',
+              padding: '10px',
+              fontSize: '13px',
+              marginBottom: '14px'
+            }}>
+              {manualTranscriptModal.message}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={closeManualTranscriptModal}
+              disabled={manualTranscriptModal.saving}
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={manualTranscriptModal.saving}
+            >
+              {manualTranscriptModal.saving ? '保存中...' : '保存并重新计算'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    );
+  };
+
   if (loading) return <div className="card">加载中...</div>;
   if (error) return <div className="card" style={{ color: '#dc3545' }}>错误: {error}</div>;
 
@@ -898,6 +1560,7 @@ function StudentProgress() {
 
   return (
     <div>
+      {renderManualTranscriptModal()}
       <Modal 
         isOpen={modal.isOpen} 
         title={modal.title} 
@@ -908,11 +1571,12 @@ function StudentProgress() {
         {modal.content}
       </Modal>
 
-      {/* 标题栏 */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <h3 style={{ margin: 0 }}>培养方案完成情况</h3>
-          <div style={{ display: 'flex', gap: '10px' }}>
+      {/* 标题栏与方案切换 */}
+      <div className="card general-requirements__navigation">
+        <div className="progress-page__header">
+          <h2 className="general-requirements__title">培养方案完成情况</h2>
+          <div className="progress-page__actions">
+            <button className="btn btn-secondary btn-sm" onClick={openManualTranscriptModal}>添加已修课程</button>
             <button className="btn btn-secondary btn-sm" onClick={expandAll}>展开全部</button>
             <button className="btn btn-secondary btn-sm" onClick={collapseAll}>收起全部</button>
             <button className="btn btn-primary btn-sm" onClick={recalculateProgress} disabled={loading}>
@@ -920,52 +1584,38 @@ function StudentProgress() {
             </button>
           </div>
         </div>
+        {(hasMajor || hasMinor) && (
+          <div className="general-requirements__tabs" role="tablist" aria-label="培养方案类别">
+            {hasMajor && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('major')}
+                className={`general-requirements__tab${activeTab === 'major' ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={activeTab === 'major'}
+              >
+                主修方案
+                {progressData.major?.is_qualified && ' ✓'}
+              </button>
+            )}
+            {hasMinor && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('minor')}
+                className={`general-requirements__tab${activeTab === 'minor' ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={activeTab === 'minor'}
+              >
+                辅修/双学位（双专业）方案
+                {progressData.minor?.is_qualified && ' ✓'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Tab切换 */}
-      {(hasMajor || hasMinor) && (
-        <div style={{ display: 'flex', borderBottom: '2px solid #e0e0e0', marginBottom: '20px' }}>
-          {hasMajor && (
-            <button
-              onClick={() => setActiveTab('major')}
-              style={{
-                padding: '12px 24px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                borderBottom: activeTab === 'major' ? '3px solid #0067c0' : 'none',
-                color: activeTab === 'major' ? '#0067c0' : '#666',
-                fontWeight: activeTab === 'major' ? 'bold' : 'normal',
-                cursor: 'pointer',
-                fontSize: '15px'
-              }}
-            >
-              主修方案
-              {progressData.major?.is_qualified && ' ✓'}
-            </button>
-          )}
-          {hasMinor && (
-            <button
-              onClick={() => setActiveTab('minor')}
-              style={{
-                padding: '12px 24px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                borderBottom: activeTab === 'minor' ? '3px solid #0067c0' : 'none',
-                color: activeTab === 'minor' ? '#0067c0' : '#666',
-                fontWeight: activeTab === 'minor' ? 'bold' : 'normal',
-                cursor: 'pointer',
-                fontSize: '15px'
-              }}
-            >
-              辅修/双学位（双专业）方案
-              {progressData.minor?.is_qualified && ' ✓'}
-            </button>
-          )}
-        </div>
-      )}
-
       {/* 内容区域 */}
-      <div className="card">
+      <div className="card" role="tabpanel">
         {activeTab === 'major' && renderProgram(progressData.major)}
         {activeTab === 'minor' && renderProgram(progressData.minor)}
       </div>
@@ -1078,7 +1728,7 @@ function StudentProgress() {
                           ) : (
                             <button
                               className={`btn btn-sm ${modalConflicts.has(course.uuid) ? 'btn-warning' : courseListModal.channel === 0 ? 'btn-primary' : 'btn-secondary'}`}
-                              onClick={() => handleSelectFromModal(course.uuid)}
+                              onClick={() => requestSelectFromModal(course)}
                               title={modalConflicts.has(course.uuid) ? "时间冲突" : courseListModal.channel === 0 ? "主修选课" : "辅双选课"}
                             >
                               {modalConflicts.has(course.uuid) 

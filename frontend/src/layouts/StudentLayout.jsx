@@ -1,30 +1,72 @@
-import React from 'react';
-import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { useSemester } from '../contexts/SemesterContext';
+import React, { useEffect, useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
+
+const DISCLAIMER_VISIBILITY_EVENT = 'course-planning-disclaimer-visibility-changed';
 
 function StudentLayout() {
-  const { user, logout } = useAuth();
-  const { semesters, selectedSemester, setSelectedSemester, loading } = useSemester();
-  const navigate = useNavigate();
   const location = useLocation();
+  const [disclaimerVisible, setDisclaimerVisible] = useState(null);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  useEffect(() => {
+    let active = true;
+
+    const loadDisclaimerPreference = async () => {
+      let visible = true;
+
+      if (window.electronAPI?.getAppSettings) {
+        try {
+          const settings = await window.electronAPI.getAppSettings();
+          visible = settings?.ui?.showCoursePlanningDisclaimer !== false;
+        } catch (error) {
+          console.warn('Unable to read disclaimer preference from app settings', error);
+        }
+      }
+
+      if (active) {
+        setDisclaimerVisible(visible);
+      }
+    };
+
+    const handleVisibilityChange = (event) => {
+      setDisclaimerVisible(event.detail?.visible !== false);
+    };
+
+    loadDisclaimerPreference();
+    window.addEventListener(DISCLAIMER_VISIBILITY_EVENT, handleVisibilityChange);
+    return () => {
+      active = false;
+      window.removeEventListener(DISCLAIMER_VISIBILITY_EVENT, handleVisibilityChange);
+    };
+  }, []);
+
+  const dismissDisclaimer = async () => {
+    setDisclaimerVisible(false);
+
+    if (window.electronAPI?.setCoursePlanningDisclaimerVisible) {
+      try {
+        await window.electronAPI.setCoursePlanningDisclaimerVisible(false);
+      } catch (error) {
+        console.warn('Unable to persist disclaimer preference to app settings', error);
+        setDisclaimerVisible(true);
+      }
+    }
   };
 
   const navItems = [
     { path: '/student/courses', label: '选课' },
     { path: '/student/schedule', label: '我的课表' },
     { path: '/student/transcript', label: '成绩单' },
-    { path: '/student/progress', label: '培养方案' }
+    { path: '/student/progress', label: '培养方案' },
+    { path: '/admin/courses', label: '课程与学期' },
+    { path: '/admin/general-requirements', label: '通用规定' },
+    { path: '/admin/programs', label: '方案管理' },
+    { path: '/admin/students', label: '设置' },
   ];
 
   return (
     <div className="container">
       <nav className="navbar">
-        <div className="navbar-brand">选课与毕业审查系统</div>
+        <div className="navbar-brand">选课规划和进度审查系统</div>
         <div className="navbar-links">
           {navItems.map(item => (
             <Link
@@ -35,62 +77,27 @@ function StudentLayout() {
               {item.label}
             </Link>
           ))}
-          
-          {/* 学期选择器 - 美化的下拉框 */}
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px',
-            marginLeft: '20px',
-            marginRight: '15px',
-            padding: '4px 12px',
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-            borderRadius: '20px',
-            border: '1px solid #e0e0e0',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-          }}>
-            <span style={{ 
-              fontSize: '13px', 
-              color: '#666',
-              fontWeight: '500',
-              whiteSpace: 'nowrap'
-            }}>
-              学期:
-            </span>
-            <select 
-              value={selectedSemester} 
-              onChange={(e) => setSelectedSemester(e.target.value)}
-              disabled={loading}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#0067c0',
-                cursor: 'pointer',
-                outline: 'none',
-                padding: '4px 8px',
-                minWidth: '100px'
-              }}
-            >
-              {semesters.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-
-          <span style={{ color: '#666', fontSize: '14px' }}>
-            {user?.name || user?.username}
-          </span>
-          <button 
-            className="btn btn-danger btn-sm" 
-            onClick={handleLogout}
-            style={{ marginLeft: '10px' }}
-          >
-            退出
-          </button>
         </div>
       </nav>
+
+      {disclaimerVisible === true && (
+        <div className="system-disclaimer" role="alert">
+          <span className="system-disclaimer__mark" aria-hidden="true">!</span>
+          <div className="system-disclaimer__content">
+            <strong>重要提示：</strong>
+            本系统仅供规划选课使用，与学校系统无关，不能替代选课网（
+            <a href="https://elective.pku.edu.cn" target="_blank" rel="noreferrer">elective.pku.edu.cn</a>
+            ）进行正式选课。
+          </div>
+          <button
+            type="button"
+            className="system-disclaimer__dismiss"
+            onClick={dismissDisclaimer}
+          >
+            不再提示
+          </button>
+        </div>
+      )}
 
       <main>
         <Outlet />

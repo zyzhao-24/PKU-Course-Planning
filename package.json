@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev:frontend": "npm run dev --prefix frontend",
-    "dev:electron": "wait-on http://localhost:3000 && electron .",
+    "dev:electron": "wait-on http://localhost:3000 && cross-env LANG=zh_CN.UTF-8 LC_ALL=zh_CN.UTF-8 LANGUAGE=zh_CN:zh electron .",
     "dev": "concurrently -k \"npm run dev:frontend\" \"npm run dev:electron\"",
     "build:frontend": "npm run build --prefix frontend",
     "pack": "electron-builder --dir",

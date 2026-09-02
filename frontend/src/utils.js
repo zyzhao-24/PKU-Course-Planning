@@ -1,3 +1,5 @@
+import { coursesHaveClassConflict } from './utils/scheduleConflicts.js';
+
 // =============== 课程相关常量及工具 ==================
 
 export const DEPARTMENT_CODE_MAP = {
@@ -145,28 +147,7 @@ export const getWeeksFromClassTime = (time) => {
 
 // 新版冲突检测：使用每个时段自己的 week_range
 export const checkTimeConflict = (course1, course2) => {
-    const times1 = course1.class_times;
-    const times2 = course2.class_times;
-    if (!times1 || !times2) return false;
-    
-    for (const t1 of times1) {
-        for (const t2 of times2) {
-            if (t1.day === t2.day) {
-                // 使用每个时段自己的 week_range
-                const w1 = getWeeksFromClassTime(t1);
-                const w2 = getWeeksFromClassTime(t2);
-                
-                const commonWeeks = [...w1].filter(x => w2.has(x));
-                if (commonWeeks.length > 0) {
-                    // Check period overlap
-                    if (Math.max(t1.start_period, t2.start_period) <= Math.min(t1.end_period, t2.end_period)) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    return false;
+    return coursesHaveClassConflict(course1, course2);
 };
 
 // 根据学期第一周周一日期计算某周的日期
@@ -192,42 +173,38 @@ export const formatDate = (date) => {
 // ==================== 成绩单工具函数 ====================
 
 // ----------------------- 常量 -----------------------
-// 等级制到绩点的映射（研究生课程），由于本科课程不计算绩点，这个只用于处理进度条长度计算
-export const GRADE_TO_GPA = {
-    'A+': 4.0, 'A': 4.0, 'A-': 3.7,
-    'B+': 3.3, 'B': 3.0, 'B-': 2.7,
-    'C+': 2.3, 'C': 2.0, 'C-': 1.7,
-    'D+': 1.3, 'D': 1.0, 'F': 0.0
+export const SCORE_PALETTE = {
+    deepRed: '#a31332',
+    red: '#d63b4d',
+    yellow: '#c7b600',
+    green: '#169b62',
+    blue: '#1677c8',
+    purple: '#7c3fb2',
+    mismatch: '#d95668'
 };
 
-// 等级制颜色映射
-const GRADE_COLORS = {
-    'A+': 'rainbow',
-    'A': '#4caf50',   // 绿色
-    'A-': '#66bb6a',  // 浅绿
-    'B+': '#9ccc65',  // 黄绿
-    'B': '#c0ca33',   // 黄绿偏黄
-    'B-': '#d4e157',  // 黄绿黄
-    'C+': '#ffee58',  // 黄色
-    'C': '#ffca28',   // 橙黄
-    'C-': '#ffa726',  // 浅橙
-    'D+': '#ff7043',  // 橙红
-    'D': '#f4511e',   // 红色
-    'F': '#b71c1c',   // 深红
-}
+const GRADE_ORDER = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D'];
+
+// 仅用于等级制课程的颜色，不作为课程成绩或绩点。
+const GRADE_RECOMMENDATION_SCORE = {
+    'A+': 97, 'A': 95, 'A-': 90,
+    'B+': 85, 'B': 80, 'B-': 77,
+    'C+': 73, 'C': 70, 'C-': 67,
+    'D+': 63, 'D': 60, 'F': 0
+};
 
 // 合格制课程颜色映射
 const PNP_COLORS = {
-    'P': '#4caf50',   // 通过-绿
-    'NP': '#b71c1c',  // 不通过-深红
-    'W': '#9c27b0',   // 退课-紫色
-    'I': '#9c27b0',   // 缓考-紫色
-    'IP': '#9c27b0',  // 未完成-紫色
-    'EX': '#2196f3'   // 免修-蓝色
+    'P': SCORE_PALETTE.blue,
+    'NP': SCORE_PALETTE.deepRed,
+    'W': SCORE_PALETTE.purple,
+    'I': SCORE_PALETTE.purple,
+    'IP': SCORE_PALETTE.purple,
+    'EX': SCORE_PALETTE.blue
 };
 
 // 若成绩解析不匹配的颜色
-const MISMATCH_COLOR = '#ff8a8a';
+const MISMATCH_COLOR = SCORE_PALETTE.mismatch;
 
 const GRADE_ASSIGN_CREDIT = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D'];
 
@@ -279,15 +256,14 @@ export const getGPA = (score, scoreType) => {
  * @returns {number} 填充百分比（20-100）
  */
 export const getFillPercent = (score, scoreType) => {
+    // P/NP 可能出现在任何成绩类型中，始终按合格制完整显示。
+    if (score === 'P' || score === 'NP') return 100;
+
     if (scoreType === 'Grade') {
-        const gpa = GRADE_TO_GPA[score];
-        if (gpa === undefined) {
-            // 非等级制分数可能是自选合格制课程
-            if (PNP_COLORS[score]) return score === 'NP' ? 20 : 100;
-            return 100;
-        }
-        if (gpa <= 1.0) return 20;
-        return ((gpa - 1.0) / 3.0) * 80 + 20;
+        if (score === 'F') return 100;
+        const gradeIndex = GRADE_ORDER.indexOf(score);
+        if (gradeIndex < 0) return 100;
+        return 100 - gradeIndex * (80 / (GRADE_ORDER.length - 1));
     }
 
     if (scoreType === 'Percentage') {
@@ -305,6 +281,32 @@ export const getFillPercent = (score, scoreType) => {
     return 100;
 };
 
+const interpolateColor = (startHex, endHex, ratio) => {
+    const start = [1, 3, 5].map(index => parseInt(startHex.slice(index, index + 2), 16));
+    const end = [1, 3, 5].map(index => parseInt(endHex.slice(index, index + 2), 16));
+    const channels = start.map((value, index) => (
+        Math.round(value + (end[index] - value) * ratio)
+    ));
+    return `rgb(${channels.join(', ')})`;
+};
+
+const getPercentageScoreColor = (score) => {
+    if (score < 60) return SCORE_PALETTE.deepRed;
+    const boundedScore = Math.min(score, 100);
+    if (boundedScore <= 85) {
+        return interpolateColor(
+            SCORE_PALETTE.red,
+            SCORE_PALETTE.yellow,
+            (boundedScore - 60) / 25,
+        );
+    }
+    return interpolateColor(
+        SCORE_PALETTE.yellow,
+        SCORE_PALETTE.green,
+        (boundedScore - 85) / 15,
+    );
+};
+
 /**
  * 根据成绩获取颜色（接受score和scoreType）
  * @param {string|number} score 成绩
@@ -312,6 +314,9 @@ export const getFillPercent = (score, scoreType) => {
  * @returns {string} 颜色值或'rainbow'
  */
 export const getScoreColor = (score, scoreType) => {
+    // P/NP 的含义优先于教务系统提供的 score_type。
+    if (score === 'P' || score === 'NP') return PNP_COLORS[score];
+
     // 百分制
     if (scoreType === 'Percentage') {
         const numScore = parseFloat(score);
@@ -324,32 +329,14 @@ export const getScoreColor = (score, scoreType) => {
         // 100分：彩虹色
         if (numScore === 100) return 'rainbow';
 
-        // <60分：深红
-        if (numScore < 60) return '#b71c1c';
-
-        // 60-100分：线性连续映射（绿-黄-红）
-        // 60分 = 红色(rgb(244, 81, 30))
-        // 80分 = 黄色(rgb(255, 238, 88))
-        // 100分 = 绿色(rgb(76, 175, 80))
-        if (numScore <= 80) {
-            // 60-80分: 红 → 黄
-            const ratio = (numScore - 60) / 20;
-            const r = Math.floor(244 + (255 - 244) * ratio);
-            const g = Math.floor(81 + (238 - 81) * ratio);
-            const b = Math.floor(30 + (88 - 30) * ratio);
-            return `rgb(${r}, ${g}, ${b})`;
-        } else {
-            // 80-100分: 黄 → 绿
-            const ratio = (numScore - 80) / 20;
-            const r = Math.floor(255 - (255 - 76) * ratio);
-            const g = Math.floor(238 - (238 - 175) * ratio);
-            const b = Math.floor(88 - (88 - 80) * ratio);
-            return `rgb(${r}, ${g}, ${b})`;
-        }
+        return getPercentageScoreColor(numScore);
     }
 
     if (scoreType === 'Grade') {
-        return GRADE_COLORS[score] || PNP_COLORS[score] || MISMATCH_COLOR;
+        const recommendationScore = GRADE_RECOMMENDATION_SCORE[score];
+        return recommendationScore === undefined
+            ? (PNP_COLORS[score] || MISMATCH_COLOR)
+            : getPercentageScoreColor(recommendationScore);
     }
 
     // 合格制等其他类型

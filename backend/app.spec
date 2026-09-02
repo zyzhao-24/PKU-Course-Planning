@@ -7,6 +7,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('../frontend/dist', 'frontend/dist'),
+        ('resources', 'resources'),
+        ('../data/college_english_pool.json', 'resources'),
+        ('../data/labor_education_pool.json', 'resources'),
         (os.path.join(os.environ['LOCALAPPDATA'], 'ms-playwright/chromium_headless_shell-1223'), 'playwright/chromium_headless_shell-1223'),
         (os.path.join(os.environ['LOCALAPPDATA'], 'ms-playwright/chromium-1223'), 'playwright/chromium-1223'),
         (os.path.join(os.environ['LOCALAPPDATA'], 'ms-playwright/ffmpeg-1011'), 'playwright/ffmpeg-1011'),

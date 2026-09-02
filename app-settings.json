@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "window": {
+    "closeAction": "ask"
+  },
+  "ui": {
+    "showCoursePlanningDisclaimer": true
+  }
+}

@@ -2,19 +2,42 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from '../utils/axios';
 import { useSemester } from '../contexts/SemesterContext';
 import CourseTable from '../components/CourseTable';
-import { formatClassTimes, DEPARTMENT_CODE_MAP, WEEK_DAYS, formatExamInfo, getWeekDate, parseWeeksFromRange } from '../utils';
+import { formatClassTimes, DEPARTMENT_CODE_MAP, WEEK_DAYS, formatExamInfo } from '../utils';
+import {
+  buildFixedBusyIndex,
+  findActivityConflictDetails,
+  findFixedScheduleConflictOwners,
+  getSemesterMaxWeeks,
+} from '../utils/scheduleConflicts';
 import Modal from '../components/Modal';
+import PortalConnectModal from '../components/PortalConnectModal';
+import SemesterSelector from '../components/SemesterSelector';
+import ActivityEditorModal from '../components/ActivityEditorModal';
+import ActivityConflictConfirmation from '../components/ActivityConflictConfirmation';
+import { useActivities } from '../contexts/ActivityContext';
+import { formatActivityTimeEntry } from '../utils/activityPresentation';
 
 function StudentSchedule() {
-  const { selectedSemester, getFirstWeekMonday } = useSemester();
+  const { selectedSemester, semesterConfigs, getFirstWeekMonday } = useSemester();
   const firstWeekMonday = getFirstWeekMonday();
+  const scheduleAdjustments = semesterConfigs[selectedSemester]?.schedule_adjustments || [];
+  const {
+    activities,
+    loading: activitiesLoading,
+    error: activitiesError,
+    createActivity,
+    updateActivity,
+    deleteActivity,
+  } = useActivities();
   const [courseDetails, setCourseDetails] = useState([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [conflicts, setConflicts] = useState(new Set());
   const [selectedIds, setSelectedIds] = useState({});
   const [programNodes, setProgramNodes] = useState([]);
+  const [portalConnectOpen, setPortalConnectOpen] = useState(false);
   const [autoSelectedUuids, setAutoSelectedUuids] = useState(new Set()); // 自动选课的课程
+  const [activityEditor, setActivityEditor] = useState({ isOpen: false, activity: null });
 
   const [modal, setModal] = useState({
     isOpen: false,
@@ -40,7 +63,6 @@ function StudentSchedule() {
   useEffect(() => {
     if (selectedSemester) {
       fetchData();
-      syncSchedule(); // 自动同步课表地点
     }
   }, [selectedSemester]);
 
@@ -128,7 +150,6 @@ function StudentSchedule() {
       
       const allCourses = [...fullCourses];
       setCourseDetails(allCourses);
-      checkConflicts(allCourses);
     } catch (error) {
       console.error("获取课表失败", error);
     } finally {
@@ -137,47 +158,80 @@ function StudentSchedule() {
   };
 
   const checkConflicts = (courses) => {
-    const newConflicts = new Set();
-    for (let i = 0; i < courses.length; i++) {
-      for (let j = i + 1; j < courses.length; j++) {
-        if (hasConflict(courses[i], courses[j])) {
-          newConflicts.add(courses[i].uuid);
-          newConflicts.add(courses[j].uuid);
-        }
-      }
-    }
-    setConflicts(newConflicts);
+    setConflicts(findFixedScheduleConflictOwners(courses, {
+      semester: selectedSemester,
+      firstWeekMonday,
+      activities,
+      adjustments: scheduleAdjustments,
+    }));
   };
 
-  const hasConflict = (c1, c2) => {
-    // 检查每个时段的冲突
-    for (const t1 of c1.class_times || []) {
-      for (const t2 of c2.class_times || []) {
-        if (t1.day === t2.day) {
-          // 检查节次是否重叠
-          const start1 = t1.start_period;
-          const end1 = t1.end_period;
-          const start2 = t2.start_period;
-          const end2 = t2.end_period;
-          if (Math.max(start1, start2) <= Math.min(end1, end2)) {
-            // 检查周次是否重叠（使用 parseWeeksFromRange 正确处理 week_type）
-            const weeks1 = parseWeeksFromRange(t1.week_range, t1.week_type);
-            const weeks2 = parseWeeksFromRange(t2.week_range, t2.week_type);
+  useEffect(() => {
+    checkConflicts(courseDetails);
+  }, [courseDetails, activities, selectedSemester, semesterConfigs]);
 
-            // 如果任一时段没有周次信息（空集合），说明该时段无上课时间，跳过
-            if (weeks1.size === 0 || weeks2.size === 0) {
-              continue;
-            }
+  const closeActivityEditor = () => setActivityEditor({ isOpen: false, activity: null });
 
-            const commonWeeks = [...weeks1].filter(w => weeks2.has(w));
-            if (commonWeeks.length > 0) {
-              return true;
-            }
-          }
-        }
-      }
+  const persistActivity = async (payload) => {
+    if (activityEditor.activity?.uuid) {
+      await updateActivity(activityEditor.activity.uuid, payload);
+    } else {
+      await createActivity(payload);
     }
-    return false;
+    closeActivityEditor();
+  };
+
+  const handleSaveActivity = async (payload) => {
+    const draft = {
+      ...payload,
+      uuid: activityEditor.activity?.uuid || 'activity-draft',
+    };
+    const otherActivities = activities.filter(item => item.uuid !== activityEditor.activity?.uuid);
+    const busyIndex = buildFixedBusyIndex(courseDetails, {
+      semester: selectedSemester,
+      firstWeekMonday,
+      activities: otherActivities,
+      adjustments: scheduleAdjustments,
+    });
+    const conflictDetails = findActivityConflictDetails(draft, busyIndex);
+    if (!conflictDetails.length) {
+      await persistActivity(payload);
+      return;
+    }
+
+    showModal(
+      '确认时间冲突',
+      <ActivityConflictConfirmation activity={draft} details={conflictDetails} />,
+      async () => {
+        closeModal();
+        try {
+          await persistActivity(payload);
+        } catch (error) {
+          showModal('错误', error.response?.data?.message || error.message, closeModal, false, 'btn btn-danger');
+        }
+      },
+      true,
+      'btn btn-warning',
+    );
+  };
+
+  const requestDeleteActivity = (activity) => {
+    showModal(
+      '删除活动',
+      `确定删除“${activity.title}”吗？`,
+      async () => {
+        try {
+          await deleteActivity(activity.uuid);
+          closeModal();
+          closeActivityEditor();
+        } catch (error) {
+          closeModal();
+          showModal('错误', error.response?.data?.message || error.message, closeModal, false, 'btn btn-danger');
+        }
+      },
+      true,
+      'btn btn-danger',
+    );
   };
 
   const handleClearAll = () => {
@@ -286,6 +340,10 @@ function StudentSchedule() {
       }
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message;
+      if (err.response?.data?.portal_required) {
+        setPortalConnectOpen(true);
+        return;
+      }
       console.error('同步课表失败:', errorMsg);
     } finally {
       setSyncing(false);
@@ -301,6 +359,16 @@ function StudentSchedule() {
 
   return (
     <div>
+      <ActivityEditorModal
+        isOpen={activityEditor.isOpen}
+        activity={activityEditor.activity}
+        semester={selectedSemester}
+        maxWeeks={getSemesterMaxWeeks(selectedSemester)}
+        firstWeekMonday={firstWeekMonday}
+        onCancel={closeActivityEditor}
+        onSave={handleSaveActivity}
+        onDelete={requestDeleteActivity}
+      />
       <Modal 
         isOpen={modal.isOpen} 
         title={modal.title} 
@@ -311,11 +379,31 @@ function StudentSchedule() {
       >
         {modal.content}
       </Modal>
+      <PortalConnectModal
+        isOpen={portalConnectOpen}
+        onCancel={() => setPortalConnectOpen(false)}
+        onConnected={async () => {
+          setPortalConnectOpen(false);
+          await syncSchedule();
+        }}
+      />
 
       <div className="card" id="schedule-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h3 style={{ margin: 0 }}>我的课表 - {selectedSemester}</h3>
-          <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap',
+          marginBottom: '15px',
+          borderBottom: '1px solid #edf2f7',
+          paddingBottom: '12px'
+        }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>我的课表</h3>
+            <SemesterSelector compact />
+          </div>
+          <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 'bold', color: '#555' }}>
               总学分: <span style={{ color: '#2c3e50', fontSize: '1.2em' }}>{courseDetails.reduce((sum, c) => sum + parseFloat(c.credits || 0), 0)}</span>
             </span>
@@ -323,6 +411,15 @@ function StudentSchedule() {
               课程数: <span style={{ color: '#2c3e50', fontSize: '1.2em' }}>{courseDetails.length}</span>
             </span>
             <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setActivityEditor({ isOpen: true, activity: null })}
+              >
+                添加活动
+              </button>
+              <button className="btn btn-secondary" onClick={handleSyncSchedule} disabled={syncing}>
+                {syncing ? '同步中...' : '同步课表'}
+              </button>
               <button className="btn btn-primary" onClick={handleExportPDF}>导出PDF</button>
               <button className="btn btn-danger" onClick={handleClearAll}>清空所有课程</button>
             </div>
@@ -332,20 +429,56 @@ function StudentSchedule() {
         {loading ? <div>加载中...</div> : (
           <CourseTable 
             courses={courseDetails} 
+            activities={activities}
+            adjustments={scheduleAdjustments}
             semester={selectedSemester} 
-            conflicts={conflicts} 
             firstWeekMonday={firstWeekMonday}
             onWeekChange={handleWeekChange}
-            examInfos={courseDetails
-              .filter(c => c.exam_info && c.exam_info.date)
-              .map(c => ({
-                courseId: c.course_id,
-                date: c.exam_info.date,
-                period: c.exam_info.period,
-                location: c.exam_info.location
-              }))
-            }
+            onActivityClick={activity => setActivityEditor({ isOpen: true, activity })}
           />
+        )}
+      </div>
+
+      <div className="card">
+        <h3>活动列表</h3>
+        {activitiesError && <div className="status-bar status-error">{activitiesError}</div>}
+        {activitiesLoading ? <div>加载中...</div> : activities.length === 0 ? (
+          <div style={{ padding: '14px 0', color: '#64748b', fontSize: '13px' }}>暂无活动</div>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>活动</th>
+                  <th>时间及地点</th>
+                  <th>冲突检查</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activities.map(activity => (
+                  <tr key={activity.uuid} className={conflicts.has(activity.uuid) ? 'conflict-row' : ''}>
+                    <td>{activity.title}</td>
+                    <td style={{ whiteSpace: 'pre-line' }}>
+                      {(activity.time_entries || []).map(formatActivityTimeEntry).join('\n')}
+                    </td>
+                    <td>{(() => {
+                      const blockingCount = (activity.time_entries || []).filter(entry => entry.blocking !== false).length;
+                      if (blockingCount === 0) return '不参与';
+                      if (blockingCount === (activity.time_entries || []).length) return '全部参与';
+                      return '部分参与';
+                    })()}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button className="btn btn-primary btn-sm" onClick={() => setActivityEditor({ isOpen: true, activity })}>编辑</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => requestDeleteActivity(activity)}>删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -469,4 +602,3 @@ function StudentSchedule() {
 }
 
 export default StudentSchedule;
-

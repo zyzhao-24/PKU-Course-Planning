@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, nativeImage, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
@@ -16,6 +16,9 @@ function log(message) {
 
 let mainWindow;
 let pythonProcess;
+let tray;
+let isQuitting = false;
+let isHandlingClose = false;
 
 // Changed to point to the folder structure created by --onedir
 const PY_DIST_FOLDER = 'backend/dist/app';
@@ -23,6 +26,117 @@ const PY_SRC_FOLDER = 'backend';
 const PY_MODULE = 'app.py';
 
 const isDev = !app.isPackaged;
+const BACKEND_PORT = isDev ? 5001 : 5000;
+const BACKEND_BASE_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+const settingsFile = isDev
+  ? path.join(__dirname, 'app-settings.json')
+  : path.join(app.getPath('userData'), 'app-settings.json');
+const CLOSE_ACTIONS = new Set(['ask', 'quit', 'minimizeToTray']);
+const DEFAULT_APP_SETTINGS = {
+  schemaVersion: 1,
+  window: {
+    closeAction: 'ask',
+  },
+  ui: {
+    showCoursePlanningDisclaimer: true,
+  },
+};
+
+const normalizeAppSettings = (settings = {}) => {
+  const closeAction = settings.window?.closeAction;
+  const configuredDisclaimerVisibility = settings.ui?.showCoursePlanningDisclaimer;
+  const showCoursePlanningDisclaimer = typeof configuredDisclaimerVisibility === 'boolean'
+    ? configuredDisclaimerVisibility
+    : DEFAULT_APP_SETTINGS.ui.showCoursePlanningDisclaimer;
+  return {
+    schemaVersion: 1,
+    window: {
+      closeAction: CLOSE_ACTIONS.has(closeAction) ? closeAction : DEFAULT_APP_SETTINGS.window.closeAction,
+    },
+    ui: {
+      showCoursePlanningDisclaimer,
+    },
+  };
+};
+
+const loadAppSettings = () => {
+  try {
+    if (!fs.existsSync(settingsFile)) {
+      return normalizeAppSettings();
+    }
+    return normalizeAppSettings(JSON.parse(fs.readFileSync(settingsFile, 'utf8')));
+  } catch (err) {
+    log(`Failed to load app settings: ${err}`);
+    return normalizeAppSettings();
+  }
+};
+
+let appSettings = loadAppSettings();
+
+const saveAppSettings = (nextSettings) => {
+  appSettings = normalizeAppSettings(nextSettings);
+  try {
+    const tempFile = `${settingsFile}.tmp`;
+    fs.writeFileSync(tempFile, JSON.stringify(appSettings, null, 2), 'utf8');
+    fs.renameSync(tempFile, settingsFile);
+  } catch (err) {
+    log(`Failed to save app settings: ${err}`);
+  }
+};
+
+const setCloseActionPreference = (closeAction) => {
+  saveAppSettings({
+    ...appSettings,
+    window: {
+      ...appSettings.window,
+      closeAction,
+    },
+  });
+};
+
+const setCoursePlanningDisclaimerVisibility = (visible) => {
+  saveAppSettings({
+    ...appSettings,
+    ui: {
+      ...appSettings.ui,
+      showCoursePlanningDisclaimer: visible === true,
+    },
+  });
+};
+
+ipcMain.handle('app-settings:get', () => appSettings);
+
+ipcMain.handle('app-settings:set-close-action', (_event, closeAction) => {
+  setCloseActionPreference(closeAction);
+  return appSettings;
+});
+
+ipcMain.handle('app-settings:set-course-planning-disclaimer-visible', (_event, visible) => {
+  setCoursePlanningDisclaimerVisibility(visible);
+  return appSettings;
+});
+
+const getAppIconPath = () => {
+  const publicIconPath = path.join(__dirname, 'frontend/public/favicon.ico');
+  if (fs.existsSync(publicIconPath)) {
+    return publicIconPath;
+  }
+  return path.join(__dirname, 'frontend/dist/favicon.ico');
+};
+
+const loadUtf8Html = (browserWindow, html) => {
+  const encodedHtml = Buffer.from(html, 'utf8').toString('base64');
+  browserWindow.loadURL(`data:text/html;charset=UTF-8;base64,${encodedHtml}`);
+};
+
+const getTrayIcon = () => {
+  if (process.platform === 'win32') {
+    return getAppIconPath();
+  }
+
+  const fallbackPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAsklEQVR4AWP4z8Dwn4ECwESJ5GgGBrDB/3cPPxj+T0z6z8DAwPCfiYGB4Q+S8B8DAwPDf1Kzf2CphkA2LfzPwMDA8J+BgYHhP9WuXxvE6P8MDBySkv+fMTAwMPwH4mBg+E+i2P8ZGBgY/kNQ/f+UgYGB4T8DAwPDfzAWBn4GBgaG/0Q6TWMQhZsHYWBg+E/BoGkM4mgqg/z/H9SKxjAKaIYBAF9rJH8Npx39AAAAAElFTkSuQmCC';
+  return nativeImage.createFromDataURL(fallbackPng);
+};
 
 const getPythonScriptPath = () => {
   if (!isDev) {
@@ -51,6 +165,7 @@ const startPythonSubprocess = () => {
   }
 
   if (pythonProcess != null) {
+    const spawnedProcess = pythonProcess;
     log('child process spawned');
     pythonProcess.stdout.on('data', (data) => {
       log(`stdout: ${data}`);
@@ -63,6 +178,9 @@ const startPythonSubprocess = () => {
     });
     pythonProcess.on('exit', (code, signal) => {
       log(`Python process exited with code ${code} and signal ${signal}`);
+      if (pythonProcess === spawnedProcess) {
+        pythonProcess = null;
+      }
     });
   }
 };
@@ -72,16 +190,24 @@ const exitPythonSubprocess = (callback) => {
     if (callback) callback();
     return;
   }
-  log(`Shutting down python process ${pythonProcess.pid}`);
+  const pid = pythonProcess.pid;
+  let isKilling = false;
+  log(`Shutting down python process ${pid}`);
   // 请求Flask提交数据库后关闭
-  const req = http.request('http://127.0.0.1:5000/api/shutdown', { method: 'POST', timeout: 2000 }, () => {
+  const req = http.request(`${BACKEND_BASE_URL}/api/shutdown`, { method: 'POST', timeout: 2000 }, () => {
     killProcess(callback);
   });
   req.on('error', () => killProcess(callback)); // Flask可能已挂
+  req.on('timeout', () => {
+    req.destroy();
+    killProcess(callback);
+  });
   req.end();
 
   function killProcess(cb) {
-    treeKill(pythonProcess.pid, 'SIGKILL', (err) => {
+    if (isKilling) return;
+    isKilling = true;
+    treeKill(pid, 'SIGKILL', (err) => {
       if (err) log(`Failed to kill: ${err}`);
       else log('Python killed');
       pythonProcess = null;
@@ -90,11 +216,107 @@ const exitPythonSubprocess = (callback) => {
   }
 };
 
+const quitApplication = () => {
+  if (isQuitting) return;
+  isQuitting = true;
+  exitPythonSubprocess(() => app.quit());
+};
+
+const showMainWindow = () => {
+  if (!mainWindow) {
+    createWindow();
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+};
+
+const ensureTray = () => {
+  if (tray) return true;
+
+  try {
+    tray = new Tray(getTrayIcon());
+  } catch (err) {
+    log(`Failed to create tray: ${err}`);
+    return false;
+  }
+
+  tray.setToolTip('选课规划系统');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示主窗口', click: showMainWindow },
+    { type: 'separator' },
+    { label: '退出', click: quitApplication },
+  ]));
+  tray.on('click', showMainWindow);
+  return true;
+};
+
+const minimizeToTray = () => {
+  if (ensureTray()) {
+    mainWindow?.hide();
+  } else {
+    mainWindow?.minimize();
+  }
+};
+
+const handleMainWindowClose = async (event) => {
+  if (isQuitting) return;
+
+  event.preventDefault();
+  if (isHandlingClose) return;
+
+  if (appSettings.window.closeAction === 'quit') {
+    quitApplication();
+    return;
+  }
+
+  if (appSettings.window.closeAction === 'minimizeToTray') {
+    minimizeToTray();
+    return;
+  }
+
+  isHandlingClose = true;
+  let result;
+  try {
+    result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['退出', '最小化到托盘'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      title: '退出选课规划系统',
+      message: '是否退出选课规划系统？',
+      checkboxLabel: '不再询问，记住我的选择',
+      checkboxChecked: false,
+    });
+  } catch (err) {
+    log(`Failed to show close confirmation: ${err}`);
+    minimizeToTray();
+    return;
+  } finally {
+    isHandlingClose = false;
+  }
+
+  if (result.response === 0) {
+    if (result.checkboxChecked) {
+      setCloseActionPreference('quit');
+    }
+    quitApplication();
+  } else {
+    if (result.checkboxChecked) {
+      setCloseActionPreference('minimizeToTray');
+    }
+    minimizeToTray();
+  }
+};
+
 const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    icon: path.join(__dirname, 'frontend/dist/favicon.ico'),
+    icon: getAppIconPath(),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -104,11 +326,13 @@ const createWindow = () => {
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000'); // Frontend Dev Server
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
     // mainWindow.webContents.openDevTools();
   }
+
+  mainWindow.on('close', handleMainWindowClose);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -135,11 +359,14 @@ function showAdminSetupWindow() {
     },
   });
 
-  inputWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+  loadUtf8Html(inputWin, `
     <!DOCTYPE html>
     <html>
-    <head><meta charset="utf-8"><style>
-      body { font-family: 'Microsoft YaHei', sans-serif; padding: 30px; display: flex; flex-direction: column; align-items: center; background: #f5f5f5; }
+    <head>
+      <meta charset="UTF-8">
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+      <style>
+      body { font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei', sans-serif; padding: 30px; display: flex; flex-direction: column; align-items: center; background: #f5f5f5; }
       .field { width: 80%; margin: 10px 0; }
       .field label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; }
       .field input { width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
@@ -170,12 +397,12 @@ function showAdminSetupWindow() {
       </script>
     </body>
     </html>
-  `)}`);
+  `);
 
   // 通过API创建管理员的辅助函数
   function createAdminViaApi(username, password, callback) {
     const postData = JSON.stringify({ username, password });
-    const req = http.request('http://127.0.0.1:5000/api/admin/setup', {
+    const req = http.request(`${BACKEND_BASE_URL}/api/admin/setup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -203,7 +430,6 @@ function showAdminSetupWindow() {
     req.end();
   }
 
-  const { ipcMain } = require('electron');
   let submitted = false;
 
   ipcMain.once('admin-credentials', (event, creds) => {
@@ -236,25 +462,6 @@ function startPythonAndCreateWindow() {
 
   const template = [
     {
-      label: '文件',
-      submenu: [
-        { label: '退出', role: 'quit' }
-      ]
-    },
-    {
-      label: '编辑',
-      submenu: [
-        { label: '撤销', role: 'undo' },
-        { label: '重做', role: 'redo' },
-        { type: 'separator' },
-        { label: '剪切', role: 'cut' },
-        { label: '复制', role: 'copy' },
-        { label: '粘贴', role: 'paste' },
-        { label: '删除', role: 'delete' },
-        { label: '全选', role: 'selectAll' }
-      ]
-    },
-    {
       label: '学生功能',
       submenu: [
         {
@@ -283,21 +490,21 @@ function startPythonAndCreateWindow() {
           click: () => mainWindow?.webContents.send('navigate', '#/admin/dashboard')
         },
         {
-          label: '课程管理',
+          label: '课程与学期管理',
           click: () => mainWindow?.webContents.send('navigate', '#/admin/courses')
+        },
+        {
+          label: '培养方案通用规定',
+          click: () => mainWindow?.webContents.send('navigate', '#/admin/general-requirements')
         },
         {
           label: '培养方案管理',
           click: () => mainWindow?.webContents.send('navigate', '#/admin/programs')
         },
         {
-          label: '学生管理',
+          label: '设置',
           click: () => mainWindow?.webContents.send('navigate', '#/admin/students')
         },
-        {
-          label: '学期配置',
-          click: () => mainWindow?.webContents.send('navigate', '#/admin/semester-config')
-        }
       ]
     },
     {
@@ -331,14 +538,16 @@ function startPythonAndCreateWindow() {
   Menu.setApplicationMenu(menu);
 
   let retries = 0;
-  const MAX_RETRIES = 20;
+  const MAX_RETRIES = 3; // for development, we can retry fewer times before giving up
 
   const checkServer = () => {
-    http.get('http://127.0.0.1:5000/api/health', (res) => {
+    http.get(`${BACKEND_BASE_URL}/api/health`, (res) => {
       log(`Server ready with status code: ${res.statusCode}`);
       retries = 0; // reset on success
+      createWindow();
+      return;
 
-      const checkReq = http.get('http://127.0.0.1:5000/api/admin/check-setup', (checkRes) => {
+      const checkReq = http.get(`${BACKEND_BASE_URL}/api/admin/check-setup`, (checkRes) => {
         let body = '';
         checkRes.on('data', chunk => body += chunk);
         checkRes.on('end', () => {
@@ -368,8 +577,8 @@ function startPythonAndCreateWindow() {
         // 后端连接超时：显示错误窗口
         const { dialog } = require('electron');
         dialog.showErrorBox('后端服务未启动',
-          `无法连接到后端服务 (127.0.0.1:5000)。\n\n可能原因：\n1. Python依赖缺失\n2. 端口被占用\n3. 数据库权限不足\n\n请检查日志: ${logFile}`);
-        app.quit();
+          `无法连接到后端服务 (127.0.0.1:${BACKEND_PORT})。\n\n可能原因：\n1. Python依赖缺失\n2. 端口被占用\n3. 数据库权限不足\n\n请检查日志: ${logFile}`);
+        quitApplication();
       } else {
         setTimeout(checkServer, 1000);
       }
@@ -380,21 +589,20 @@ function startPythonAndCreateWindow() {
 }
 
 app.on('window-all-closed', () => {
-  // 仅当主窗口已被创建后才退出（设置窗口关闭不应杀后端）
-  if (process.platform !== 'darwin' && mainWindow) {
-    exitPythonSubprocess(() => app.quit());
-  }
+  // 主窗口关闭时由 close 事件决定退出或隐藏到托盘。
 });
 
 app.on('activate', () => {
-  if (mainWindow === null) {
+  if (mainWindow) {
+    showMainWindow();
+  } else if (mainWindow === null) {
     createWindow();
   }
 });
 
 app.on('will-quit', (event) => {
-  if (pythonProcess && mainWindow) {
+  if (pythonProcess && !isQuitting) {
     event.preventDefault();
-    exitPythonSubprocess(() => app.quit());
+    quitApplication();
   }
 });

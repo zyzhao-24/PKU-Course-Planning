@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../utils/axios';
 import Modal from '../components/Modal';
-import { getScoreColor, getFillPercent, getGPA, calculateSetGPA, calculateSetCredits, isCreditCounted, GRADE_TO_GPA } from '../utils';
+import PortalConnectModal from '../components/PortalConnectModal';
+import { getScoreColor, getFillPercent, getGPA, calculateSetGPA, calculateSetCredits, isCreditCounted, SCORE_PALETTE } from '../utils';
 
 // 动态彩虹背景组件
 const RainbowBar = ({ fillPercent }) => (
@@ -11,7 +12,7 @@ const RainbowBar = ({ fillPercent }) => (
     top: 0,
     bottom: 0,
     width: `${fillPercent}%`,
-    background: 'linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3, #ff0000)',
+    background: 'linear-gradient(90deg, #d94155, #df7c1f, #d2b400, #24a35a, #168eb1, #386ec3, #7148b8, #b53f8c, #d94155)',
     backgroundSize: '200% 100%',
     animation: 'rainbow-flow 3s linear infinite',
     borderRadius: '12px 0 0 12px'
@@ -35,7 +36,10 @@ const CourseCard = ({ course }) => {
   const isPercent = course.score_type === 'Percentage';
   const gpa = getGPA(course.score, course.score_type);
   const isRainbow = color === 'rainbow';
-  const textStyle = { color: color === '#ffffff' ? '#000000' : '#ffffff' };
+  const textStyle = {
+    color: color === '#ffffff' ? '#000000' : '#ffffff',
+    textShadow: '0 1px 2px rgba(0, 0, 0, 0.55)'
+  };
   
   return (
     <div style={{
@@ -126,8 +130,8 @@ const CourseCard = ({ course }) => {
 // 转交流课程卡片（特殊显示：100%蓝色进度条，与免修相同）
 const ExchangeCourseCard = ({ course }) => {
   // 固定蓝色（与免修EX相同），100%填满
-  const color = '#2196f3';
-  const textStyle = { color: '#ffffff' };
+  const color = SCORE_PALETTE.blue;
+  const textStyle = { color: '#ffffff', textShadow: '0 1px 2px rgba(0, 0, 0, 0.55)' };
   
   return (
     <div style={{
@@ -221,7 +225,7 @@ const DissertationCard = ({ dissertation }) => {
           top: 0,
           bottom: 0,
           width: '100%',
-          background: '#9c27b0',
+          background: SCORE_PALETTE.purple,
           borderRadius: '12px'
         }} />
         
@@ -266,7 +270,10 @@ const DissertationCard = ({ dissertation }) => {
   const gpa = getGPA(dissertation.score, dissertation.score_type);
   const isPercent = dissertation.score_type === 'Percentage';
   const isRainbow = color === 'rainbow';
-  const textStyle = { color: color === '#ffffff' ? '#000000' : '#ffffff' };
+  const textStyle = {
+    color: color === '#ffffff' ? '#000000' : '#ffffff',
+    textShadow: '0 1px 2px rgba(0, 0, 0, 0.55)'
+  };
   
   return (
     <div style={{
@@ -359,6 +366,7 @@ function StudentTranscript() {
   const [dissertation, setDissertation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [portalConnectOpen, setPortalConnectOpen] = useState(false);
   const [totalGPA, setTotalGPA] = useState('-.---');
   const [totalCredits, setTotalCredits] = useState(0);
   
@@ -433,17 +441,24 @@ function StudentTranscript() {
         showModal('同步失败', '同步成绩单失败: ' + syncRes.data.message, 'error');
         return;
       }
-      const autoSelectRes = await axios.post('/api/student/transcript/auto-select');
-      if (autoSelectRes.data.success) {
-        showModal('同步完成', 
-          `成绩单: ${syncRes.data.message}\n自动选课: ${autoSelectRes.data.message}`, 
+      const autoSelect = syncRes.data.auto_select;
+      if (autoSelect?.success) {
+        showModal('同步完成',
+          `成绩单: ${syncRes.data.message}\n自动选课: ${autoSelect.message}`,
           'success');
         fetchTranscript();
       } else {
-        showModal('自动选课失败', autoSelectRes.data.message, 'error');
+        showModal('同步完成',
+          `成绩单: ${syncRes.data.message}\n${autoSelect?.message || '自动选课未执行'}`,
+          'error');
+        fetchTranscript();
       }
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message;
+      if (err.response?.data?.portal_required) {
+        setPortalConnectOpen(true);
+        return;
+      }
       if (errorMsg.includes('IAAA会话已过期') || errorMsg.includes('Portal会话已过期')) {
         showModal('会话过期', '会话已过期，请退出后重新登录', 'error');
       } else {
@@ -474,6 +489,50 @@ function StudentTranscript() {
     return credits;
   };
 
+  const academicYearGroups = Object.entries(
+    transcripts.reduce((groups, term) => {
+      const year = term.academic_year || '未知学年';
+      if (!groups[year]) groups[year] = [];
+      groups[year].push(term);
+      return groups;
+    }, {})
+  ).sort(([yearA], [yearB]) => yearB.localeCompare(yearA));
+
+  const calculateAcademicYearStats = (terms) => {
+    const regularCourses = terms.flatMap(term => term.courses || []);
+    const exchangeCourses = terms.flatMap(term => (
+      (term.exchange_courses || []).map(course => ({
+        ...course,
+        score: 'P',
+        score_type: 'P/NP'
+      }))
+    ));
+    const coursesWithGPA = regularCourses.filter(course => (
+      course.gpa !== null &&
+      course.gpa !== undefined &&
+      course.gpa !== '' &&
+      Number.isFinite(Number(course.gpa)) &&
+      Number(course.credits) > 0
+    ));
+    const gpaCredits = coursesWithGPA.reduce(
+      (sum, course) => sum + Number(course.credits),
+      0
+    );
+    const academicYearGPA = gpaCredits > 0
+      ? (
+          coursesWithGPA.reduce(
+            (sum, course) => sum + Number(course.gpa) * Number(course.credits),
+            0
+          ) / gpaCredits
+        ).toFixed(3)
+      : '-.---';
+    return {
+      gpa: academicYearGPA,
+      credits: calculateSetCredits([...regularCourses, ...exchangeCourses]),
+      courseCount: regularCourses.length + exchangeCourses.length,
+    };
+  };
+
   if (loading) {
     return <div className="card">加载中...</div>;
   }
@@ -490,6 +549,14 @@ function StudentTranscript() {
       >
         <div style={{ whiteSpace: 'pre-line' }}>{modal.message}</div>
       </Modal>
+      <PortalConnectModal
+        isOpen={portalConnectOpen}
+        onCancel={() => setPortalConnectOpen(false)}
+        onConnected={async () => {
+          setPortalConnectOpen(false);
+          await handleSync();
+        }}
+      />
       
       <RainbowStyle />
       
@@ -531,12 +598,12 @@ function StudentTranscript() {
 
         <div style={{ marginTop: '20px', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', color: '#666' }}>成绩图例:</span>
-          <span style={{ fontSize: '11px', padding: '2px 6px', background: '#4caf50', color: 'white', borderRadius: '3px' }}>优秀</span>
-          <span style={{ fontSize: '11px', padding: '2px 6px', background: '#ffee58', color: '#888', borderRadius: '3px' }}>良好</span>
-          <span style={{ fontSize: '11px', padding: '2px 6px', background: '#f4511e', color: 'white', borderRadius: '3px' }}>及格</span>
-          <span style={{ fontSize: '11px', padding: '2px 6px', background: '#b71c1c', color: 'white', borderRadius: '3px' }}>不及格</span>
-          <span style={{ fontSize: '11px', padding: '2px 6px', background: '#9c27b0', color: 'white', borderRadius: '3px' }}>退课/缓考/未完成</span>
-          <span style={{ fontSize: '11px', padding: '2px 6px', background: '#2196f3', color: 'white', borderRadius: '3px' }}>免修/转交流</span>
+          <span style={{ fontSize: '11px', padding: '2px 6px', background: SCORE_PALETTE.green, color: 'white', borderRadius: '3px' }}>优秀</span>
+          <span style={{ fontSize: '11px', padding: '2px 6px', background: SCORE_PALETTE.yellow, color: 'white', borderRadius: '3px' }}>良好</span>
+          <span style={{ fontSize: '11px', padding: '2px 6px', background: SCORE_PALETTE.red, color: 'white', borderRadius: '3px' }}>及格</span>
+          <span style={{ fontSize: '11px', padding: '2px 6px', background: SCORE_PALETTE.deepRed, color: 'white', borderRadius: '3px' }}>不合格</span>
+          <span style={{ fontSize: '11px', padding: '2px 6px', background: SCORE_PALETTE.purple, color: 'white', borderRadius: '3px' }}>退课/缓考/未完成</span>
+          <span style={{ fontSize: '11px', padding: '2px 6px', background: SCORE_PALETTE.blue, color: 'white', borderRadius: '3px' }}>合格/免修/转交流</span>
         </div>
         <span style={{ fontSize: '12px', color: '#666' }}>本页面不能用作任何成绩证明用途，请以官方出具的成绩单为准！</span>
       </div>
@@ -547,10 +614,27 @@ function StudentTranscript() {
         </div>
       ) : (
         <>
-          {transcripts.map((term) => {
+          {academicYearGroups.map(([academicYear, yearTerms]) => {
+            const yearStats = calculateAcademicYearStats(yearTerms);
+            return (
+              <section key={academicYear} style={{ marginBottom: '24px' }}>
+                <div className="card" style={{ borderLeft: '4px solid #0067c0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>{academicYear}学年</h3>
+                    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', color: '#475569', fontSize: '14px' }}>
+                      <span>学年绩点 <strong style={{ color: '#1f2937' }}>{yearStats.gpa}</strong></span>
+                      <span>获得学分 <strong style={{ color: '#1f2937' }}>{yearStats.credits.toFixed(1)}</strong></span>
+                      <span>课程数 <strong style={{ color: '#1f2937' }}>{yearStats.courseCount}</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                {yearTerms.map((term) => {
+            const majorCourses = term.courses?.filter(c => c.channel === 0) || [];
+            const hasMajor = majorCourses.length > 0;
             const hasMinor = term.courses?.some(c => c.channel === 1);
             const hasExchange = term.exchange_courses?.length > 0;
-            const needCategoryLabels = hasMinor || hasExchange;
+            const showSourceLabels = hasMinor || hasExchange;
             
             return (
               <div key={`${term.academic_year}-${term.term}`} className="card">
@@ -580,8 +664,7 @@ function StudentTranscript() {
 
                 {expandedTerms[`${term.academic_year}-${term.term}`] && (
                   <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {/* 只有存在非主修课程时才显示分类标签 */}
-                    {needCategoryLabels && (
+                    {showSourceLabels && hasMajor && (
                       <div style={{
                         fontSize: '14px',
                         fontWeight: 'bold',
@@ -594,7 +677,7 @@ function StudentTranscript() {
                       </div>
                     )}
                     
-                    {term.courses?.filter(c => c.channel === 0).map((course) => (
+                    {majorCourses.map((course) => (
                       <CourseCard key={course.record_id} course={course} />
                     ))}
                     
@@ -638,6 +721,9 @@ function StudentTranscript() {
                   </div>
                 )}
               </div>
+            );
+                })}
+              </section>
             );
           })}
           

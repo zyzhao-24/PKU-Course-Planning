@@ -4,6 +4,8 @@ import os
 import sys
 import bcrypt
 import tempfile
+import uuid as uuidlib
+import json
 from playwright.sync_api import sync_playwright
 
 # Add current directory to path to allow imports
@@ -37,17 +39,26 @@ if _is_compiled:
 from database import init_db, db
 from models import *
 from datetime import datetime, date
+from sqlalchemy import or_
 
 # 导入培养方案新系统
 from program_api import program_bp
+from activity_api import activity_bp
+from schedule_adjustment_api import schedule_adjustment_bp, serialize_schedule_adjustment
 
-from importer import import_courses_from_json
+from importer import get_import_policy, import_courses_from_json
+from semester_utils import (
+    build_semester_name,
+    parse_first_week_monday,
+    parse_semester_name,
+)
 
 from auth_utils import (
     verify_pku_credentials,
     generate_jwt_token,
     create_or_update_student,
     create_admin_user,
+    get_or_create_local_user,
     login_required,
     student_required,
     admin_required,
@@ -60,12 +71,14 @@ from auth_utils import (
     create_login_session,
     switch_login_method,
     check_mobile_auth,
+    get_login_auth_requirements,
     get_captcha_image,
     send_sms_code,
     get_qr_image,
     password_login as student_password_login,
     poll_qr_login,
     finalize_login,
+    bind_portal_session,
     check_portal_login_status,
     decrypt_session_password,
     get_session_public_key,
@@ -93,6 +106,8 @@ CORS(app, resources={r"/api/*": {
     "origins": ["http://localhost:3000", "http://127.0.0.1:3000",
                 "https://localhost:5000", "https://127.0.0.1:5000",
                 "http://localhost:5000", "http://127.0.0.1:5000",
+                "https://localhost:5001", "https://127.0.0.1:5001",
+                "http://localhost:5001", "http://127.0.0.1:5001",
                 "null"],  # Electron file:// protocol
     "supports_credentials": True
 }})
@@ -113,6 +128,39 @@ init_db(app)
 
 # 注册培养方案新系统的 blueprint
 app.register_blueprint(program_bp)
+app.register_blueprint(activity_bp)
+app.register_blueprint(schedule_adjustment_bp)
+
+
+def serialize_user(user):
+    return {
+        'id': user.id,
+        'username': user.username,
+        'name': user.name,
+        'role': user.role,
+        'major_program_id': user.major_program_id,
+        'minor_program_id': user.minor_program_id,
+        'english_level': user.english_level,
+    }
+
+
+def portal_required_response(message='请先连接北大账号'):
+    return jsonify({
+        'success': False,
+        'portal_required': True,
+        'message': message
+    }), 409
+
+
+@app.route('/api/auth/local-session', methods=['POST'])
+def create_local_session():
+    user = get_or_create_local_user()
+    token = generate_jwt_token(user)
+    return jsonify({
+        'success': True,
+        'token': token,
+        'user': serialize_user(user)
+    })
 
 # ==================== 安全认证路由 ====================
 
@@ -143,6 +191,11 @@ def get_public_key():
 @app.route('/api/auth/login', methods=['POST'])
 @rate_limit(max_attempts=10, window_seconds=60)
 def login():
+    return jsonify({
+        'success': False,
+        'message': 'Local sessions are automatic. Use /api/auth/local-session.'
+    }), 410
+
     """
     统一登录接口（使用RSA加密传输）
     请求: {
@@ -196,7 +249,8 @@ def login():
                 'name': user.name,
                 'role': user.role,
                 'major_program_id': user.major_program_id,
-                'minor_program_id': user.minor_program_id
+                'minor_program_id': user.minor_program_id,
+                'english_level': user.english_level,
             }
         })
     
@@ -253,13 +307,15 @@ def get_current_user_info(current_user):
             'name': current_user.name,
             'role': current_user.role,
             'major_program_id': current_user.major_program_id,
-            'minor_program_id': current_user.minor_program_id
+            'minor_program_id': current_user.minor_program_id,
+            'english_level': current_user.english_level,
         }
     })
 
 
 # ==================== 学生登录路由（新） ====================
 
+@app.route('/api/portal/init', methods=['POST'])
 @app.route('/api/auth/student/init', methods=['POST'])
 def student_login_init():
     """
@@ -292,6 +348,7 @@ def student_login_init():
     return jsonify(response)
 
 
+@app.route('/api/portal/public-key', methods=['GET'])
 @app.route('/api/auth/student/public-key', methods=['GET'])
 def student_get_session_public_key():
     """
@@ -315,6 +372,7 @@ def student_get_session_public_key():
     })
 
 
+@app.route('/api/portal/switch-method', methods=['POST'])
 @app.route('/api/auth/student/switch-method', methods=['POST'])
 def student_switch_login_method():
     """
@@ -353,6 +411,7 @@ def student_switch_login_method():
     })
 
 
+@app.route('/api/portal/check-auth', methods=['POST'])
 @app.route('/api/auth/student/check-auth', methods=['POST'])
 @rate_limit(max_attempts=10, window_seconds=60)
 def student_check_mobile_auth():
@@ -385,6 +444,7 @@ def student_check_mobile_auth():
         return jsonify({'success': False, 'message': f'服务器错误: {str(e)}'}), 500
 
 
+@app.route('/api/portal/captcha', methods=['GET'])
 @app.route('/api/auth/student/captcha', methods=['GET'])
 def student_get_captcha():
     """
@@ -407,6 +467,7 @@ def student_get_captcha():
     })
 
 
+@app.route('/api/portal/sms', methods=['POST'])
 @app.route('/api/auth/student/sms', methods=['POST'])
 @rate_limit(max_attempts=3, window_seconds=120)
 def student_send_sms():
@@ -431,6 +492,7 @@ def student_send_sms():
     })
 
 
+@app.route('/api/portal/qr', methods=['GET'])
 @app.route('/api/auth/student/qr', methods=['GET'])
 def student_get_qr():
     """
@@ -454,6 +516,7 @@ def student_get_qr():
     })
 
 
+@app.route('/api/portal/login-password', methods=['POST'])
 @app.route('/api/auth/student/login-password', methods=['POST'])
 @rate_limit(max_attempts=5, window_seconds=60)
 def student_login_password():
@@ -488,25 +551,35 @@ def student_login_password():
     )
     
     if not success:
-        # 登录失败，检查是否需要新验证码
         error_msg = result
-        needs_new_captcha = 'E03' in error_msg  # 验证码错误
-        
         response = {
             'success': False,
             'message': error_msg
         }
-        
-        if needs_new_captcha:
-            # 获取新验证码
+
+        requirements_success, requirements = get_login_auth_requirements(session_id)
+        if requirements_success:
+            response.update(requirements)
+
+        if requirements_success and requirements['requires_captcha']:
             captcha_success, captcha_result = get_captcha_image(session_id)
             if captcha_success:
                 response['captcha_image'] = captcha_result
-                response['requires_captcha'] = True
-        
+
         return jsonify(response), 401
     
     # 登录成功，完成登录流程
+    current_user = get_current_user()
+    if current_user:
+        if not bind_portal_session(session_id, current_user):
+            return jsonify({'success': False, 'message': 'Portal connection failed'}), 500
+        return jsonify({
+            'success': True,
+            'portal_connected': True,
+            'portal_user': user_info,
+            'user': serialize_user(current_user)
+        })
+
     user, _ = finalize_login(session_id, user_info)
     
     if not user:
@@ -524,11 +597,13 @@ def student_login_password():
             'name': user.name,
             'role': user.role,
             'major_program_id': user.major_program_id,
-            'minor_program_id': user.minor_program_id
+            'minor_program_id': user.minor_program_id,
+            'english_level': user.english_level,
         }
     })
 
 
+@app.route('/api/portal/qr-poll', methods=['POST'])
 @app.route('/api/auth/student/qr-poll', methods=['POST'])
 def student_login_qr_poll():
     """
@@ -555,6 +630,17 @@ def student_login_qr_poll():
     if user_info:
         # 登录成功，完成登录流程
         # QR登录成功后，user_info 中包含 username
+        current_user = get_current_user()
+        if current_user:
+            if not bind_portal_session(session_id, current_user):
+                return jsonify({'success': False, 'message': 'Portal connection failed'}), 500
+            return jsonify({
+                'success': True,
+                'portal_connected': True,
+                'portal_user': user_info,
+                'user': serialize_user(current_user)
+            })
+
         user, _ = finalize_login(session_id, user_info)
         
         if not user:
@@ -572,7 +658,8 @@ def student_login_qr_poll():
                 'name': user.name,
                 'role': user.role,
                 'major_program_id': user.major_program_id,
-                'minor_program_id': user.minor_program_id
+                'minor_program_id': user.minor_program_id,
+                'english_level': user.english_level,
             }
         })
     
@@ -601,6 +688,12 @@ def check_auth_status():
         }), 401
     
     # 学生需要检查portal会话
+    return jsonify({
+        'success': True,
+        'authenticated': True,
+        'user': serialize_user(user)
+    })
+
     if user.role == 'student':
         is_valid, message = check_portal_login_status(user.id)
         
@@ -624,7 +717,8 @@ def check_auth_status():
             'name': user.name,
             'role': user.role,
             'major_program_id': user.major_program_id,
-            'minor_program_id': user.minor_program_id
+            'minor_program_id': user.minor_program_id,
+            'english_level': user.english_level,
         }
     })
 
@@ -660,7 +754,13 @@ def get_semesters(current_user):
         semester_configs[cfg.name] = {
             'academic_year': cfg.academic_year,
             'term': cfg.term,
-            'first_week_monday': cfg.first_week_monday.isoformat() if cfg.first_week_monday else None
+            'first_week_monday': cfg.first_week_monday.isoformat() if cfg.first_week_monday else None,
+            'is_active': cfg.is_active,
+            'course_count': cfg.courses.count(),
+            'schedule_adjustments': [
+                serialize_schedule_adjustment(item)
+                for item in cfg.schedule_adjustments
+            ],
         }
     
     return jsonify({
@@ -673,16 +773,15 @@ def get_semesters(current_user):
 @admin_required
 def admin_create_semester(current_user):
     """管理员创建学期"""
-    data = request.json
-    name = data.get('name')
-    academic_year = data.get('academic_year')
-    term = data.get('term')
-    first_week_monday = data.get('first_week_monday')
-    
-    if not name or not academic_year or not term:
-        return jsonify({'success': False, 'message': '学期名称、学年和学期必填'}), 400
-    
+    data = request.json or {}
     try:
+        academic_year = str(data.get('academic_year') or '').strip()
+        term = int(data.get('term'))
+        name = build_semester_name(academic_year, term)
+        supplied_name = str(data.get('name') or '').strip()
+        if supplied_name and supplied_name != name:
+            return jsonify({'success': False, 'message': '学期名称必须与学年和学期序号一致'}), 400
+
         # 检查是否已存在
         existing = Semester.query.filter_by(name=name).first()
         if existing:
@@ -692,7 +791,10 @@ def admin_create_semester(current_user):
             name=name,
             academic_year=academic_year,
             term=term,
-            first_week_monday=date.fromisoformat(first_week_monday) if first_week_monday else None
+            first_week_monday=parse_first_week_monday(
+                data.get('first_week_monday'),
+                required=True,
+            ),
         )
         db.session.add(semester)
         db.session.commit()
@@ -707,6 +809,9 @@ def admin_create_semester(current_user):
                 'first_week_monday': semester.first_week_monday.isoformat() if semester.first_week_monday else None
             }
         })
+    except (TypeError, ValueError) as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -737,28 +842,31 @@ def admin_delete_semester(current_user, name):
 @admin_required
 def admin_update_semester(current_user, name):
     """管理员更新学期配置"""
-    data = request.json
-    first_week_monday = data.get('first_week_monday')
+    data = request.json or {}
     
     semester = Semester.query.filter_by(name=name).first()
     if not semester:
         return jsonify({'success': False, 'message': '学期不存在'}), 404
     
     try:
-        if first_week_monday:
-            semester.first_week_monday = date.fromisoformat(first_week_monday)
-        else:
-            semester.first_week_monday = None
-            
+        parse_semester_name(name)
+        if 'first_week_monday' in data:
+            semester.first_week_monday = parse_first_week_monday(
+                data.get('first_week_monday'),
+                required=True,
+            )
         db.session.commit()
         return jsonify({
             'success': True, 
             'message': '学期配置已更新',
             'semester': {
                 'name': semester.name,
-                'first_week_monday': semester.first_week_monday.isoformat() if semester.first_week_monday else None
+                'first_week_monday': semester.first_week_monday.isoformat() if semester.first_week_monday else None,
             }
         })
+    except (TypeError, ValueError) as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -792,6 +900,7 @@ def get_courses(current_user):
     
     # course_name: 模糊匹配
     search_name = request.args.get('course_name', '')
+    search_query = request.args.get('q', '').strip()
     
     # 支持单个值或列表的筛选参数（过滤空值）
     department_code = [v for v in request.args.getlist('department_code[]') if v]
@@ -816,6 +925,16 @@ def get_courses(current_user):
     
     if semester:
         query = query.filter(Course.semester == semester)
+
+    if search_query:
+        mappings = CourseNameMapping.query.filter(
+            CourseNameMapping.course_name.like(f"%{search_query}%")
+        ).all()
+        course_ids = [m.course_id for m in mappings]
+        conditions = [Course.course_id.like(f"%{search_query}%")]
+        if course_ids:
+            conditions.append(Course.course_id.in_(course_ids))
+        query = query.filter(or_(*conditions))
     
     # course_id 筛选：列表=精确匹配任意一项，非列表=模糊匹配
     if search_id:
@@ -1143,9 +1262,11 @@ def student_get_transcript(current_user):
             
             course_data = {
                 'record_id': t.record_id,
+                'is_manual': str(t.record_id or '').startswith('manual:'),
                 'uuid': t.uuid,
                 'course_id': t.course_id,
                 'class_number': t.class_number,
+                'semester': f'{t.academic_year}-{t.term}',
                 'course_name': t.course_name,
                 'score': t.score,
                 'score_type': t.score_type,
@@ -1217,6 +1338,257 @@ def student_get_transcript(current_user):
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _parse_transcript_semester(data):
+    semester = str(data.get('semester') or '').strip()
+    if semester:
+        parts = semester.split('-')
+        if len(parts) >= 3:
+            return '-'.join(parts[:2]), int(parts[2])
+        raise ValueError('学期格式应为 25-26-1')
+
+    academic_year = str(data.get('academic_year') or '').strip()
+    term = data.get('term')
+    if not academic_year or term in (None, ''):
+        raise ValueError('请填写学期，或同时填写学年和学期序号')
+    return academic_year, int(term)
+
+
+def _coerce_json_list(value, field_name):
+    if value in (None, ''):
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f'{field_name} 必须是 JSON 数组') from exc
+        if isinstance(parsed, list):
+            return parsed
+    raise ValueError(f'{field_name} 必须是数组')
+
+
+def _ensure_semester_exists(semester_name, academic_year, term):
+    semester = Semester.query.filter_by(name=semester_name).first()
+    if semester:
+        return semester
+    raise ValueError('学期不存在，请先在课程与学期管理中创建学期')
+
+
+def _find_course_in_semester(course_id, class_number, semester_name):
+    if not course_id or not semester_name:
+        return None
+    query = Course.query.filter_by(course_id=course_id, semester=semester_name)
+    if class_number:
+        exact_class = query.filter_by(class_number=class_number).first()
+        if exact_class:
+            return exact_class
+    return query.first()
+
+
+def _create_course_from_manual_payload(data, academic_year, term, course_id, course_name, class_number, credits):
+    semester_name = f'{academic_year}-{term}'
+    _ensure_semester_exists(semester_name, academic_year, term)
+
+    mapping = CourseNameMapping.query.filter_by(course_id=course_id).first()
+    if not mapping:
+        mapping = CourseNameMapping(
+            course_id=course_id,
+            course_name=course_name,
+            credits=float(credits or 0)
+        )
+        db.session.add(mapping)
+    else:
+        mapping.course_name = course_name
+        mapping.credits = float(credits or mapping.credits or 0)
+
+    course = Course(
+        uuid=f"MANUAL_{uuidlib.uuid4().hex[:12]}",
+        course_id=course_id,
+        course_type=str(data.get('course_type') or '').strip(),
+        department_code=str(data.get('department_code') or '').strip() or '0',
+        class_number=class_number or '',
+        semester=semester_name,
+        class_times=_coerce_json_list(data.get('class_times'), '上课时间'),
+        teachers=_coerce_json_list(data.get('teachers'), '教师'),
+        remarks=str(data.get('remarks') or '手动录入课程').strip()
+    )
+    db.session.add(course)
+    return course
+
+
+def _serialize_manual_transcript(transcript):
+    return {
+        'record_id': transcript.record_id,
+        'is_manual': str(transcript.record_id or '').startswith('manual:'),
+        'uuid': transcript.uuid,
+        'course_id': transcript.course_id,
+        'class_number': transcript.class_number,
+        'academic_year': transcript.academic_year,
+        'term': transcript.term,
+        'semester': f'{transcript.academic_year}-{transcript.term}',
+        'course_name': transcript.course_name,
+        'score': transcript.score,
+        'score_type': transcript.score_type,
+        'credits': transcript.credits,
+        'channel': transcript.channel,
+        'gpa': calculate_course_gpa(transcript.score, transcript.score_type),
+    }
+
+
+def _cleanup_orphan_course_assignment(user_id, source_uuid):
+    if not source_uuid:
+        return
+    has_transcript = Transcript.query.filter_by(
+        user_id=user_id,
+        uuid=source_uuid,
+    ).first() is not None
+    has_selected = SelectedCourse.query.filter_by(
+        user_id=user_id,
+        course_uuid=source_uuid,
+    ).first() is not None
+    if not has_transcript and not has_selected:
+        CourseListAssignment.query.filter_by(
+            user_id=user_id,
+            source_type='course',
+            source_uuid=source_uuid,
+        ).delete()
+
+
+def _build_manual_transcript_payload(data, current_user, existing_record_id=None):
+    course_uuid = str(data.get('uuid') or data.get('course_uuid') or '').strip()
+    course = Course.query.filter_by(uuid=course_uuid).first() if course_uuid else None
+    academic_year, term = _parse_transcript_semester(data)
+    semester_name = f'{academic_year}-{term}'
+
+    course_id = str(data.get('course_id') or (course.course_id if course else '')).strip()
+    course_name = str(data.get('course_name') or (course.course_name if course else '')).strip()
+    class_number = str(data.get('class_number') or (course.class_number if course else '')).strip() or None
+    score = str(data.get('score') or '').strip()
+    score_type = str(data.get('score_type') or 'Percentage').strip()
+    credits = float(data.get('credits') if data.get('credits') not in (None, '') else (course.credits if course else 0))
+    channel = int(data.get('channel') if data.get('channel') not in (None, '') else 0)
+    create_course_if_missing = bool(data.get('create_course_if_missing'))
+
+    if not course_id:
+        raise ValueError('课程号不能为空')
+    if not course_name:
+        raise ValueError('课程名称不能为空')
+    if not score:
+        raise ValueError('成绩不能为空')
+    if channel not in (0, 1):
+        raise ValueError('通道只能为主修或辅双')
+
+    if not course or course.semester != semester_name:
+        course = _find_course_in_semester(course_id, class_number, semester_name)
+
+    if not course and create_course_if_missing:
+        course = _create_course_from_manual_payload(
+            data,
+            academic_year,
+            term,
+            course_id,
+            course_name,
+            class_number,
+            credits
+        )
+
+    if course:
+        course_uuid = course.uuid
+        course_id = course.course_id
+        course_name = course.course_name
+        class_number = course.class_number or class_number
+        credits = float(course.credits if course.credits is not None else credits)
+    elif not course_uuid or not course_uuid.startswith('manual:'):
+        course_uuid = f'manual:{current_user.id}:{uuidlib.uuid4().hex}'
+
+    record_id = existing_record_id or (
+        f'manual:{current_user.id}:{course_uuid}'
+        if not course_uuid.startswith('manual:')
+        else course_uuid
+    )
+    return {
+        'record_id': record_id,
+        'user_id': current_user.id,
+        'uuid': course_uuid,
+        'course_id': course_id,
+        'class_number': class_number,
+        'academic_year': academic_year,
+        'term': term,
+        'course_name': course_name,
+        'score': score,
+        'score_type': score_type,
+        'credits': credits,
+        'channel': channel,
+    }
+
+
+@app.route('/api/student/transcript/manual', methods=['POST'])
+@student_required
+def student_create_manual_transcript(current_user):
+    """手动录入一条已修课程成绩"""
+    data = request.json or {}
+    try:
+        payload = _build_manual_transcript_payload(data, current_user)
+        existing = Transcript.query.filter_by(
+            user_id=current_user.id,
+            record_id=payload['record_id'],
+        ).first()
+        if existing:
+            return jsonify({'success': False, 'message': '该课程已手动录入，可编辑已有记录'}), 409
+
+        transcript = Transcript(**payload)
+        db.session.add(transcript)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'transcript': _serialize_manual_transcript(transcript),
+        })
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/student/transcript/manual/<path:record_id>', methods=['PUT'])
+@student_required
+def student_update_manual_transcript(record_id, current_user):
+    """更新一条手动录入的成绩"""
+    transcript = Transcript.query.filter_by(
+        user_id=current_user.id,
+        record_id=record_id,
+    ).first()
+    if not transcript:
+        return jsonify({'success': False, 'message': '成绩记录不存在'}), 404
+    if not str(transcript.record_id or '').startswith('manual:'):
+        return jsonify({'success': False, 'message': '只能编辑手动录入的成绩'}), 403
+
+    old_uuid = transcript.uuid
+    data = request.json or {}
+    try:
+        payload = _build_manual_transcript_payload(data, current_user, existing_record_id=transcript.record_id)
+        for key, value in payload.items():
+            if key not in ('record_id', 'user_id'):
+                setattr(transcript, key, value)
+        db.session.flush()
+        if old_uuid != transcript.uuid:
+            _cleanup_orphan_course_assignment(current_user.id, old_uuid)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'transcript': _serialize_manual_transcript(transcript),
+        })
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/student/schedule/pdf', methods=['POST'])
 @student_required
@@ -1476,9 +1848,17 @@ def student_sync_schedule(current_user):
         }), 400
     
     # 获取Portal课程表
+    is_valid, portal_message = check_portal_login_status(current_user.id)
+    if not is_valid:
+        clear_portal_session(current_user.id)
+        return portal_required_response(portal_message)
+
     success, result = get_student_schedule(current_user.id, year, semester)
     
     if not success:
+        if 'Portal' in str(result):
+            clear_portal_session(current_user.id)
+            return portal_required_response(str(result))
         return jsonify({
             'success': False,
             'message': f'获取课程表失败: {result}'
@@ -1584,11 +1964,19 @@ def student_sync_schedule(current_user):
 @app.route('/api/student/transcript/sync', methods=['POST'])
 @student_required
 def student_sync_transcript(current_user):
-    """同步成绩单（只同步到数据库，不自动选课）"""
+    """以门户最新成绩覆盖官方成绩，并在提交后触发自动选课。"""
     # 使用新的 get_student_scores 函数获取成绩单
+    is_valid, portal_message = check_portal_login_status(current_user.id)
+    if not is_valid:
+        clear_portal_session(current_user.id)
+        return portal_required_response(portal_message)
+
     success, result = get_student_scores(current_user.id)
     
     if not success:
+        if 'Portal' in str(result):
+            clear_portal_session(current_user.id)
+            return portal_required_response(str(result))
         return jsonify({
             'success': False, 
             'message': f'获取成绩单失败: {result}'
@@ -1605,8 +1993,10 @@ def student_sync_transcript(current_user):
     dissertation_info = result.get('dissertation_transcripts', {})
 
     try:
-        # 1. 清空主修/辅双成绩单
-        Transcript.query.filter_by(user_id=current_user.id).delete()
+        # 1. 清空主修/辅双成绩单，但保留用户手动录入的成绩
+        Transcript.query.filter_by(user_id=current_user.id).filter(
+            ~Transcript.record_id.like('manual:%')
+        ).delete(synchronize_session=False)
         
         # 2. 清空转交流成绩单
         ExchangeTranscript.query.filter_by(user_id=current_user.id).delete()
@@ -1751,11 +2141,23 @@ def student_sync_transcript(current_user):
                     error_messages.append(f"转交流课程 {course.get('course_name', 'unknown')}: {str(e)}")
         
         db.session.commit()
+
+        try:
+            auto_select_result = {
+                'success': True,
+                **_auto_select_transcript_courses(current_user),
+            }
+        except Exception as auto_select_error:
+            auto_select_result = {
+                'success': False,
+                'message': f'自动选课失败: {auto_select_error}',
+            }
         
         return jsonify({
             'success': True,
             'message': f'成功同步 {synced_count} 条成绩记录',
-            'errors': error_messages if error_messages else None
+            'errors': error_messages if error_messages else None,
+            'auto_select': auto_select_result,
         })
         
     except Exception as e:
@@ -1763,9 +2165,7 @@ def student_sync_transcript(current_user):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-@app.route('/api/student/transcript/auto-select', methods=['POST'])
-@student_required
-def student_transcript_auto_select(current_user):
+def _auto_select_transcript_courses(current_user):
     """根据成绩单自动选课（只根据uuid匹配，使用课程库的学期，使用成绩单channel）"""
     try:
         # 1. 获取该学生的所有成绩单记录，提取所有uuid（排除W成绩）
@@ -1860,17 +2260,28 @@ def student_transcript_auto_select(current_user):
         
         db.session.commit()
         
-        return jsonify({
-            'success': True,
+        return {
             'message': f'自动选课完成：新增 {len(auto_selected_uuids)} 门，跳过 {skipped_count} 门，未找到 {not_found_count} 门',
             'auto_selected_uuids': auto_selected_uuids,
             'auto_selected_count': len(auto_selected_uuids),
             'skipped_count': skipped_count,
             'not_found_count': not_found_count
-        })
+        }
         
-    except Exception as e:
+    except Exception:
         db.session.rollback()
+        raise
+
+
+@app.route('/api/student/transcript/auto-select', methods=['POST'])
+@student_required
+def student_transcript_auto_select(current_user):
+    try:
+        return jsonify({
+            'success': True,
+            **_auto_select_transcript_courses(current_user),
+        })
+    except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -1878,6 +2289,13 @@ def student_transcript_auto_select(current_user):
 
 @app.route('/api/admin/check-setup', methods=['GET'])
 def admin_check_setup():
+    user = get_or_create_local_user()
+    return jsonify({
+        'success': True,
+        'adminExists': True,
+        'username': user.username
+    })
+
     """检查是否需要初始化管理员账号"""
     existing_admin = User.query.filter_by(role='admin').first()
     if existing_admin:
@@ -1893,6 +2311,11 @@ def admin_check_setup():
 
 @app.route('/api/admin/setup', methods=['POST'])
 def admin_setup():
+    return jsonify({
+        'success': False,
+        'message': 'Admin setup has been removed. The local user is created automatically.'
+    }), 410
+
     """初始化管理员账号（仅首次使用）"""
     # 检查是否已有管理员
     existing_admin = User.query.filter_by(role='admin').first()
@@ -1921,6 +2344,12 @@ def admin_setup():
 
 # ---- 课程管理 ----
 
+@app.route('/api/admin/courses/import-policy', methods=['GET'])
+@admin_required
+def admin_get_course_import_policy(current_user):
+    """返回课程导入的身份、覆盖、UUID和级联策略。"""
+    return jsonify({'success': True, 'policy': get_import_policy()})
+
 @app.route('/api/admin/courses/import', methods=['POST'])
 @admin_required
 def admin_import_courses(current_user):
@@ -1937,15 +2366,20 @@ def admin_import_courses(current_user):
         try:
             os.close(temp_fd)
             file.save(temp_path)
-            success, message = import_courses_from_json(temp_path)
+            success, result = import_courses_from_json(
+                temp_path,
+                target_academic_year=request.form.get('target_academic_year'),
+                first_week_monday=request.form.get('first_week_monday'),
+                import_mode=request.form.get('import_mode', 'append'),
+            )
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
                 
         if success:
-            return jsonify({"success": True, "message": message})
+            return jsonify({"success": True, **result})
         else:
-            return jsonify({"success": False, "message": message}), 500
+            return jsonify({"success": False, "message": result["message"]}), 400
             
     # Fallback to file_path for backward compatibility
     data = request.json or {}
@@ -1957,12 +2391,17 @@ def admin_import_courses(current_user):
     if not os.path.exists(file_path):
         return jsonify({"success": False, "message": "File not found"}), 404
         
-    success, message = import_courses_from_json(file_path)
+    success, result = import_courses_from_json(
+        file_path,
+        target_academic_year=data.get('target_academic_year'),
+        first_week_monday=data.get('first_week_monday'),
+        import_mode=data.get('import_mode', 'append'),
+    )
     
     if success:
-        return jsonify({"success": True, "message": message})
+        return jsonify({"success": True, **result})
     else:
-        return jsonify({"success": False, "message": message}), 500
+        return jsonify({"success": False, "message": result["message"]}), 400
 
 
 @app.route('/api/admin/courses', methods=['POST'])
@@ -2014,50 +2453,63 @@ def admin_create_course(current_user):
 @admin_required
 def admin_update_course(course_uuid, current_user):
     """管理员编辑课程"""
-    data = request.json
+    data = request.json or {}
     course = db.session.get(Course, course_uuid)
     if not course:
         return jsonify({'success': False, 'message': 'Course not found'}), 404
         
     try:
-        # 如果课程号或课程名称变更，更新映射
-        new_course_id = data.get('course_id', course.course_id)
-        new_course_name = data.get('course_name')
-        
-        if new_course_name or (new_course_id and new_course_id != course.course_id):
-            # 删除旧映射（如果不再有其他课程使用）
-            old_mapping = CourseNameMapping.query.filter_by(course_id=course.course_id).first()
-            if old_mapping and new_course_id != course.course_id:
-                other_courses = Course.query.filter(
-                    Course.course_id == course.course_id,
-                    Course.uuid != course_uuid
-                ).count()
-                if other_courses == 0:
-                    db.session.delete(old_mapping)
-            
-            # 创建或更新新映射
-            mapping = CourseNameMapping.query.filter_by(course_id=new_course_id).first()
-            if not mapping:
-                mapping = CourseNameMapping(
-                    course_id=new_course_id,
-                    course_name=new_course_name or old_mapping.course_name if old_mapping else '未知课程'
-                )
-                db.session.add(mapping)
-            elif new_course_name:
-                mapping.course_name = new_course_name
-        
+        # UUID identifies the row and must not be changed by an edit request.
+        payload_uuid = data.get('uuid')
+        if payload_uuid is not None and str(payload_uuid) != course.uuid:
+            return jsonify({'success': False, 'message': 'UUID cannot be modified'}), 400
+
+        old_course_id = course.course_id
+        new_course_id = data.get('course_id', old_course_id)
+        if new_course_id is None:
+            new_course_id = old_course_id
+        new_course_id = str(new_course_id).strip()
+        if not new_course_id:
+            return jsonify({'success': False, 'message': 'course_id is required'}), 400
+
+        # course_name and credits now live in CourseNameMapping.  Course.credits
+        # is a read-only property, so never assign either normalized field to
+        # the Course object itself.
+        old_mapping = CourseNameMapping.query.filter_by(course_id=old_course_id).first()
+        mapping = CourseNameMapping.query.filter_by(course_id=new_course_id).first()
+        if not mapping:
+            mapping = CourseNameMapping(
+                course_id=new_course_id,
+                course_name=(data.get('course_name') or
+                             (old_mapping.course_name if old_mapping else '未知课程')),
+                credits=float(data.get(
+                    'credits', old_mapping.credits if old_mapping else 0
+                ))
+            )
+            db.session.add(mapping)
+        else:
+            if data.get('course_name'):
+                mapping.course_name = data['course_name']
+            if 'credits' in data:
+                mapping.credits = float(data['credits'])
+
         course.course_id = new_course_id
         course.course_type = data.get('course_type', course.course_type)
         course.department_code = data.get('department_code', course.department_code)
         course.class_number = data.get('class_number', course.class_number)
-        course.credits = float(data.get('credits', course.credits))
         course.semester = data.get('semester', course.semester)
         course.class_times = data.get('class_times', course.class_times)
         course.teachers = data.get('teachers', course.teachers)
         course.remarks = data.get('remarks', course.remarks)
+
+        # CourseNameMapping is permanent course-number master data. It is
+        # overwritten by later imports/edits, never removed with class rows.
         
         db.session.commit()
         return jsonify({'success': True, 'message': 'Course updated'})
+    except (TypeError, ValueError):
+        db.session.rollback()
+        return jsonify({'success': False, 'message': 'credits must be a number'}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2072,8 +2524,6 @@ def admin_delete_course(course_uuid, current_user):
         return jsonify({'success': False, 'message': 'Course not found'}), 404
         
     try:
-        # Also delete from selected courses
-        SelectedCourse.query.filter_by(course_uuid=course_uuid).delete()
         db.session.delete(course)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Course deleted'})
@@ -2094,7 +2544,6 @@ def admin_clear_all_courses(current_user):
         # Delete courses for the specified semester
         courses = Course.query.filter_by(semester=semester).all()
         for c in courses:
-            SelectedCourse.query.filter_by(course_uuid=c.uuid).delete()
             db.session.delete(c)
         
         db.session.commit()
@@ -2129,7 +2578,7 @@ def admin_clear_all_courses(current_user):
 @admin_required
 def admin_get_students(current_user):
     """获取所有学生"""
-    students = User.query.filter_by(role='student').order_by(User.created_at.desc()).all()
+    students = User.query.order_by(User.created_at.desc()).all()
     
     # 获取培养方案名称映射（新系统：主修+辅双）
     program_ids = []
@@ -2152,6 +2601,7 @@ def admin_get_students(current_user):
             'major_program_name': program_map.get(s.major_program_id),
             'minor_program_id': s.minor_program_id,
             'minor_program_name': program_map.get(s.minor_program_id),
+            'english_level': s.english_level,
             'last_login': s.last_login.isoformat() if s.last_login else None,
             'created_at': s.created_at.isoformat() if s.created_at else None
         } for s in students]
@@ -2221,4 +2671,4 @@ if __name__ == '__main__':
     if _is_compiled:
         app.run(host='127.0.0.1', port=5000, debug=False)
     else:
-        app.run(host='127.0.0.1', port=5000, debug=True)
+        app.run(host='127.0.0.1', port=5001, debug=True)

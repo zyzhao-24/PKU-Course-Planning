@@ -18,6 +18,7 @@ class User(db.Model):
     # 培养方案关联 - 主修和辅双
     major_program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=True)
     minor_program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=True)
+    english_level = db.Column(db.String(20), nullable=True)
     
     major_program = db.relationship('Program', foreign_keys=[major_program_id], backref='major_students')
     minor_program = db.relationship('Program', foreign_keys=[minor_program_id], backref='minor_students')
@@ -35,9 +36,17 @@ class Program(db.Model):
     channel = db.Column(db.Integer, nullable=False)  # 0=主修, 1=辅双
     year = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    source_info = db.Column(JSON, default=dict)
+    program_metadata = db.Column('metadata', JSON, default=dict)
+    total_credits = db.Column(db.Float, nullable=True)
+    raw_payload = db.Column(JSON, default=dict)
+    import_warnings = db.Column(JSON, default=list)
     
     # 关系
     categories = db.relationship('MainCategory', backref='program', cascade='all, delete-orphan', order_by='MainCategory.order_index')
+    requirement_rules = db.relationship('ProgramRequirementRule', backref='program', cascade='all, delete-orphan', order_by='ProgramRequirementRule.order_index')
+    mutual_exclusion_groups = db.relationship('ProgramMutualExclusionGroup', backref='program', cascade='all, delete-orphan', order_by='ProgramMutualExclusionGroup.order_index')
+    course_options = db.relationship('ProgramCourseOption', backref='program', cascade='all, delete-orphan', order_by='ProgramCourseOption.order_index')
 
 
 class MainCategory(db.Model):
@@ -49,6 +58,13 @@ class MainCategory(db.Model):
     program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     order_index = db.Column(db.Integer, default=0)
+    raw = db.Column(db.Text, nullable=True)
+    remark = db.Column(JSON, nullable=True)
+    requirement_raw = db.Column(db.String(50), nullable=True)
+    requirement_type = db.Column(db.String(20), nullable=True)
+    requirement_min = db.Column(db.Float, nullable=True)
+    requirement_max = db.Column(db.Float, nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
     
     # 关系
     nodes = db.relationship('Node', backref='main_category', cascade='all, delete-orphan', order_by='Node.order_index')
@@ -64,6 +80,15 @@ class Node(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey('nodes.id'), nullable=True)
     name = db.Column(db.String(100), nullable=False)
     order_index = db.Column(db.Integer, default=0)
+    raw = db.Column(db.Text, nullable=True)
+    node_kind = db.Column(db.String(30), nullable=False, default='module')
+    remark = db.Column(JSON, nullable=True)
+    requirement_raw = db.Column(db.String(50), nullable=True)
+    requirement_type = db.Column(db.String(20), nullable=True)
+    requirement_min = db.Column(db.Float, nullable=True)
+    requirement_max = db.Column(db.Float, nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    rules_raw = db.Column(JSON, default=list)
     
     # 合格规则（JSON数组）
     qualification_rules = db.Column(JSON, default=list)
@@ -82,6 +107,15 @@ class CourseList(db.Model):
     node_id = db.Column(db.Integer, db.ForeignKey('nodes.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     order_index = db.Column(db.Integer, default=0)
+    raw = db.Column(db.Text, nullable=True)
+    remark = db.Column(JSON, nullable=True)
+    course_category = db.Column(db.String(100), nullable=True)
+    requirement_raw = db.Column(db.String(50), nullable=True)
+    requirement_type = db.Column(db.String(20), nullable=True)
+    requirement_min = db.Column(db.Float, nullable=True)
+    requirement_max = db.Column(db.Float, nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    selection_rule = db.Column(JSON, default=dict)
     
     # 是否为毕业论文（特殊处理）
     is_dissertation = db.Column(db.Boolean, default=False)
@@ -100,6 +134,123 @@ class CourseList(db.Model):
     
     # 关系
     assignments = db.relationship('CourseListAssignment', backref='course_list', cascade='all, delete-orphan')
+    course_options = db.relationship('ProgramCourseOption', backref='course_list', cascade='all, delete-orphan', order_by='ProgramCourseOption.order_index')
+
+
+class ProgramCourseOption(db.Model):
+    """
+    培养方案课程包明细 - 保存 XLS 中列出的课程，不依赖 courses_basic。
+    """
+    __tablename__ = 'program_course_options'
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False, index=True)
+    course_list_id = db.Column(db.Integer, db.ForeignKey('course_lists.id'), nullable=False, index=True)
+    course_id = db.Column(db.String(20), nullable=True, index=True)
+    course_name = db.Column(db.String(200), nullable=True)
+    credits = db.Column(db.Float, nullable=True)
+    total_hours = db.Column(db.Float, nullable=True)
+    practice_total_hours = db.Column(db.Float, nullable=True)
+    semester = db.Column(db.String(50), nullable=True)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    raw_payload = db.Column(JSON, default=dict)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProgramRequirementRule(db.Model):
+    """
+    培养方案要求规则 - 支持跨节点/课程列表求和等复杂规则，并保留 raw/parsed。
+    owner_type/owner_id 为多态引用：program/category/node/course_list。
+    """
+    __tablename__ = 'program_requirement_rules'
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False, index=True)
+    owner_type = db.Column(db.String(30), nullable=False)
+    owner_id = db.Column(db.Integer, nullable=True, index=True)
+    raw = db.Column(db.Text, nullable=False)
+    parsed = db.Column(JSON, default=dict)
+    target_names = db.Column(JSON, default=list)
+    metric = db.Column(db.String(20), nullable=True)
+    operator = db.Column(db.String(10), nullable=True)
+    value = db.Column(db.Float, nullable=True)
+    order_index = db.Column(db.Integer, default=0)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProgramMutualExclusionGroup(db.Model):
+    """
+    培养方案互斥组 - 默认 program 范围全局生效，owner 信息保留来源。
+    """
+    __tablename__ = 'program_mutual_exclusion_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False, index=True)
+    owner_type = db.Column(db.String(30), nullable=False)
+    owner_id = db.Column(db.Integer, nullable=True, index=True)
+    raw = db.Column(db.Text, nullable=False)
+    strategy = db.Column(JSON, default=dict)
+    order_index = db.Column(db.Integer, default=0)
+    source_excel_row = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    items = db.relationship(
+        'ProgramMutualExclusionItem',
+        backref='group',
+        cascade='all, delete-orphan',
+        order_by='ProgramMutualExclusionItem.order_index'
+    )
+
+
+class ProgramMutualExclusionItem(db.Model):
+    """
+    互斥组课程项。
+    """
+    __tablename__ = 'program_mutual_exclusion_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('program_mutual_exclusion_groups.id'), nullable=False, index=True)
+    course_id = db.Column(db.String(20), nullable=False, index=True)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class CollegeEnglishCoursePool(db.Model):
+    """Global college English course pool used by user-level placement rules."""
+    __tablename__ = 'college_english_course_pool'
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.String(20), nullable=False, index=True)
+    course_name = db.Column(db.String(200), nullable=False, index=True)
+    module = db.Column(db.String(30), nullable=False, index=True)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    notes = db.Column(db.String(500), nullable=True)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('course_id', 'module', name='uq_college_english_course_module'),
+    )
+
+
+class LaborEducationCoursePool(db.Model):
+    """劳动教育课程目录。
+
+    目录课程保留原课程体系，同时由劳动教育规则额外累计 labor_hours。
+    """
+    __tablename__ = 'labor_education_course_pool'
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.String(20), nullable=False, unique=True, index=True)
+    course_name = db.Column(db.String(200), nullable=False, index=True)
+    course_system = db.Column(db.String(50), nullable=False, index=True)
+    credits = db.Column(db.Float, nullable=False, default=0)
+    labor_hours = db.Column(db.Float, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 
@@ -138,12 +289,87 @@ class Semester(db.Model):
     term = db.Column(db.Integer, nullable=False)  # 学期：1, 2, 3
     name = db.Column(db.String(20), nullable=False, unique=True, index=True)  # e.g. "25-26-1"
     first_week_monday = db.Column(db.Date, nullable=True)  # 第1周周一的日期
-    description = db.Column(db.String(200), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # 关系：学期下的所有课程
     courses = db.relationship('Course', backref='semester_ref', lazy='dynamic', cascade='all, delete-orphan')
+    activities = db.relationship('ScheduleActivity', backref='semester_ref', cascade='all, delete-orphan')
+    schedule_adjustments = db.relationship(
+        'ScheduleAdjustment',
+        back_populates='semester_ref',
+        cascade='all, delete-orphan',
+    )
+
+
+class ScheduleAdjustment(db.Model):
+    """A named semester calendar adjustment containing multiple day rules."""
+    __tablename__ = 'schedule_adjustments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    semester = db.Column(db.String(20), db.ForeignKey('semesters.name'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    reason = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    semester_ref = db.relationship('Semester', back_populates='schedule_adjustments')
+    entries = db.relationship(
+        'ScheduleAdjustmentEntry',
+        back_populates='adjustment',
+        cascade='all, delete-orphan',
+        order_by='ScheduleAdjustmentEntry.id',
+    )
+
+
+class ScheduleAdjustmentEntry(db.Model):
+    """One actual day override; source days may be referenced repeatedly."""
+    __tablename__ = 'schedule_adjustment_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    adjustment_id = db.Column(
+        db.Integer,
+        db.ForeignKey('schedule_adjustments.id'),
+        nullable=False,
+        index=True,
+    )
+    semester = db.Column(db.String(20), db.ForeignKey('semesters.name'), nullable=False, index=True)
+    actual_week = db.Column(db.Integer, nullable=False)
+    actual_day = db.Column(db.Integer, nullable=False)
+    mode = db.Column(db.String(20), nullable=False)
+    source_week = db.Column(db.Integer, nullable=True)
+    source_day = db.Column(db.Integer, nullable=True)
+
+    adjustment = db.relationship('ScheduleAdjustment', back_populates='entries')
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'semester',
+            'actual_week',
+            'actual_day',
+            name='uq_schedule_adjustment_actual_day',
+        ),
+    )
+
+
+class ScheduleActivity(db.Model):
+    """Student-owned schedule activity, independent from courses and grades."""
+    __tablename__ = 'schedule_activities'
+
+    uuid = db.Column(db.String(50), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    semester = db.Column(db.String(20), db.ForeignKey('semesters.name'), nullable=False, index=True)
+    title = db.Column(db.String(100), nullable=False)
+    color = db.Column(db.String(20), nullable=False, default='green')
+    notes = db.Column(db.String(1000), nullable=True)
+    time_entries = db.Column(JSON, nullable=False, default=list)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship(
+        'User',
+        backref=db.backref('schedule_activities', cascade='all, delete-orphan'),
+    )
 
 # ==================== 课程名称映射表 ====================
 
@@ -173,6 +399,12 @@ class Course(db.Model):
     class_times = db.Column(JSON)  # [{day, start_period, end_period, week_range}, ...] - 不包含location
     teachers = db.Column(JSON)     # Storing list of strings
     remarks = db.Column(db.String(200))
+
+    selected_courses = db.relationship(
+        'SelectedCourse',
+        back_populates='course',
+        cascade='all, delete-orphan',
+    )
     
     @property
     def course_name(self):
@@ -208,7 +440,7 @@ class SelectedCourse(db.Model):
     remarks = db.Column(db.String(500))
     channel = db.Column(db.Integer, nullable=False, default=0)  # 0: 主修，1: 辅双, 2: 转交流, 3: 毕业论文
     
-    course = db.relationship('Course')
+    course = db.relationship('Course', back_populates='selected_courses')
     
     # 唯一约束：每个学生只能选同一门课（相同uuid代表同一门课同一次开课）一次
     __table_args__ = (

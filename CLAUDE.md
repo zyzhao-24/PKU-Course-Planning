@@ -134,11 +134,11 @@ SQLite single file (`course_planning.db`, ~4.7 MB, pre-seeded with course data).
 
 ### Data Pipeline
 
-Standalone scripts in `data/` for populating the course database:
-- [data/Crawler.py](data/Crawler.py) — async crawler hitting `dean.pku.edu.cn` to fetch course listings
-- [data/FormatRawData.py](data/FormatRawData.py) — converts raw crawled JSON into standardized format
+Standalone scripts in `scripts/course_data/` for populating the course database:
+- [scripts/course_data/crawl_courses.py](scripts/course_data/crawl_courses.py) — async crawler hitting `dean.pku.edu.cn` to fetch course listings
+- [scripts/course_data/format_courses.py](scripts/course_data/format_courses.py) — converts raw crawled JSON into standardized format
 
-These are run offline to produce JSON files in `data/courses/`, which are then imported via `importer.py`.
+These are run offline to produce JSON files in `scripts/course_data/courses/`, which are then imported via `importer.py`. Generated raw and formatted data are ignored by Git.
 
 ## Key Patterns
 

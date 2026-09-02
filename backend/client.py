@@ -4,7 +4,7 @@ import random
 import base64
 import re
 from typing import Optional
-from enum import Enum
+from enum import Enum, IntFlag
 
 import requests
 import ssl
@@ -22,7 +22,7 @@ class ClientBase:
     - ``get``: Wrapper for session.get, can be used directly for requests.
     - ``post``: Wrapper for session.post, can be used directly for requests.
     '''
-    def __init__(self, session: requests.Session = requests.Session()):
+    def __init__(self, session: Optional[requests.Session] = None):
         '''
         Initialize the client with a requests session.
         You can provide your own session with custom configuration (e.g., proxies, retries) if needed, 
@@ -31,6 +31,8 @@ class ClientBase:
         :param session: The session to use for requests. Defaults to empty session with default configuration.
         :type session: requests.Session, optional
         '''
+        session = session or requests.Session()
+
         # Initialize session header
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -52,7 +54,7 @@ class LoginMethod(Enum):
     PASSWORD = "password"
     QR = "qr"
 
-class LoginReqs(Enum):
+class LoginReqs(IntFlag):
     '''
     Bitwise enum for authentication requirements.
     - NONE: No additional authentication required
@@ -125,7 +127,7 @@ class PKUIAAALoginClient(ClientBase):
     '''
     def __init__(self, app_id: str, redirect_url: str,
                   method: LoginMethod = LoginMethod.PASSWORD, 
-                  session: requests.Session = requests.Session()):
+                  session: Optional[requests.Session] = None):
         '''
         Initialize PKUIAAALoginClient.
 
@@ -263,6 +265,7 @@ class PKUIAAALoginClient(ClientBase):
         resp = self.get(f"{self.base_url}/isMobileAuthen.do", params=params)
         if resp.ok:
             json = resp.json()
+            self.auth_reqs = reqs
             if json.get('success', False) and json.get('isMobileAuthen', False):
                 auth_mode = json.get('authenMode', '')
                 if auth_mode == 'SMS': reqs = LoginReqs(reqs | LoginReqs.SMS)
@@ -571,7 +574,7 @@ class Portal2017LoginClient(PKUIAAALoginClient):
     4. ``portlet_redir(portlet_id)``: Access a specific portlet by its ID to establish necessary session state. Should be called only after successful login.
     '''
     def __init__(self, method: LoginMethod = LoginMethod.PASSWORD, 
-                 session: requests.Session = requests.Session()):
+                 session: Optional[requests.Session] = None):
         '''
         Initialize Portal2017LoginClient with predefined app_id and redirect_url for PKU Portal 2017.
 
@@ -677,7 +680,7 @@ class CourseClient(PKUIAAALoginClient):
     3. ``headers``: Shortcut for session.headers, can be used to update headers when needed.
     '''
     def __init__(self, method: LoginMethod = LoginMethod.PASSWORD,
-                 session: requests.Session = requests.Session()):
+                 session: Optional[requests.Session] = None):
         '''
         Initialize CourseClient with predefined app_id and redirect_url for PKU Course
         This prepares certificate bundle for secure connection to Course as well.
@@ -749,7 +752,7 @@ class Elective2008Client(PKUIAAALoginClient):
 
     def __init__(self, method: LoginMethod = LoginMethod.PASSWORD,
                  channel: Channel = Channel.MAJOR,
-                 session: requests.Session = requests.Session()):
+                 session: Optional[requests.Session] = None):
         '''
         Initialize Elective2008Client with predefined app_id and redirect_url for PKU Elective 2008.
         :param method: The login method to use. Defaults to LoginMethod.PASSWORD.
