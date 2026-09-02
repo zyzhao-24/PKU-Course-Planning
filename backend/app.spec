@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['app.py', 'server.py'],
+    ['app.py'],
     pathex=[],
     binaries=[],
     datas=[
@@ -49,28 +49,8 @@ exe = EXE(
     icon='backend.ico',
 )
 
-exe_server = EXE(
-    pyz,
-    [s for s in a.scripts if s[0] == 'server'],
-    [],
-    exclude_binaries=True,
-    name='server',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon='backend.ico',
-)
-
 coll = COLLECT(
     exe,
-    exe_server,
     a.binaries,
     a.datas,
     strip=False,
